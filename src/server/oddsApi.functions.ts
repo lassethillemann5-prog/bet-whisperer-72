@@ -218,3 +218,59 @@ export const fetchOddsForMatch = createServerFn({ method: "POST" })
 
     return { ok: true as const, inserted: rows.length, source: matchedEvent.sport_key };
   });
+
+export const fetchOddsForAllTracked = createServerFn({ method: "POST" })
+  .inputValidator((input: { userId: string }) => input)
+  .handler(async ({ data }) => {
+    const apiKey = process.env.ODDS_API_KEY;
+    if (!apiKey) {
+      return { ok: false as const, error: "ODDS_API_KEY is not configured", matched: 0, total: 0 };
+    }
+    const supabase = adminClient();
+    const { data: tracked, error } = await supabase
+      .from("tracked_matches")
+      .select("match_id, home_team, away_team, utc_date")
+      .eq("user_id", data.userId);
+    if (error) return { ok: false as const, error: error.message, matched: 0, total: 0 };
+    const rows = tracked ?? [];
+    if (rows.length === 0)
+      return { ok: true as const, matched: 0, total: 0, inserted: 0 };
+
+    let matched = 0;
+    let inserted = 0;
+    const errors: string[] = [];
+
+    // Sequential to keep API quota predictable
+    for (const r of rows) {
+      try {
+        const res = await fetchOddsForMatch({
+          data: {
+            userId: data.userId,
+            matchId: r.match_id as number,
+            homeTeam: r.home_team as string,
+            awayTeam: r.away_team as string,
+            utcDate: r.utc_date as string,
+          },
+        });
+        if (res.ok) {
+          matched++;
+          inserted += res.inserted;
+        } else if (res.error?.startsWith("Odds API quota exceeded") || res.error?.startsWith("Invalid ODDS_API_KEY")) {
+          // Stop early on fatal errors
+          return { ok: false as const, error: res.error, matched, total: rows.length, inserted };
+        } else {
+          errors.push(`${r.home_team} vs ${r.away_team}: ${res.error}`);
+        }
+      } catch (e) {
+        errors.push(`${r.home_team} vs ${r.away_team}: ${e instanceof Error ? e.message : "error"}`);
+      }
+    }
+
+    return {
+      ok: true as const,
+      matched,
+      total: rows.length,
+      inserted,
+      errors: errors.slice(0, 5),
+    };
+  });
