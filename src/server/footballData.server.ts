@@ -80,16 +80,43 @@ async function fdFetch<T>(path: string): Promise<T> {
 
 /** Fetch upcoming matches (default: today through next 7 days). */
 export async function fetchUpcomingMatches(daysAhead = 7): Promise<MatchSummary[]> {
+  // API-SPORTS requires `season` when using from/to. Fetching by `date` works
+  // without it, so we iterate one day at a time (cheap: tiny payloads, runs in
+  // parallel) and concat the results.
   const today = new Date();
-  const end = new Date(today);
-  end.setDate(end.getDate() + daysAhead);
-  const dateFrom = today.toISOString().slice(0, 10);
-  const dateTo = end.toISOString().slice(0, 10);
+  const dates: string[] = [];
+  for (let i = 0; i < daysAhead; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
 
-  const data = await fdFetch<{ response: ApiSportsFixture[] }>(
-    `/fixtures?from=${dateFrom}&to=${dateTo}`,
+  const results = await Promise.all(
+    dates.map(async (date) => {
+      try {
+        const data = await fdFetch<{ response: ApiSportsFixture[] }>(
+          `/fixtures?date=${date}`,
+        );
+        return data.response ?? [];
+      } catch (e) {
+        console.error("fixtures day failed", date, e);
+        return [] as ApiSportsFixture[];
+      }
+    }),
   );
-  return (data.response ?? []).map(toMatchSummary);
+
+  // Flatten + de-duplicate by fixture id (defensive)
+  const seen = new Set<number>();
+  const merged: ApiSportsFixture[] = [];
+  for (const day of results) {
+    for (const f of day) {
+      if (!seen.has(f.fixture.id)) {
+        seen.add(f.fixture.id);
+        merged.push(f);
+      }
+    }
+  }
+  return merged.map(toMatchSummary);
 }
 
 export async function fetchMatch(id: number): Promise<MatchSummary> {
