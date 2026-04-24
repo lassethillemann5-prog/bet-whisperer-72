@@ -8,7 +8,18 @@ import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Calendar, ChevronLeft, ChevronRight, Search, Sparkles, Trophy } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Link } from "@tanstack/react-router";
+import { getValuePicks, type ValuePick } from "@/server/valuePicks.functions";
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Flame,
+  Search,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -27,6 +38,9 @@ function IndexPage() {
   const [visible, setVisible] = useState<number>(24);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"fixtures" | "picks">("fixtures");
+  const [picks, setPicks] = useState<ValuePick[]>([]);
+  const [picksBusy, setPicksBusy] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -49,7 +63,44 @@ function IndexPage() {
     return () => { cancelled = true; };
   }, [user]);
 
+  // Load value picks for the "Today's picks" tab
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setPicksBusy(true);
+    getValuePicks({ data: { userId: user.id } })
+      .then((res) => {
+        if (cancelled) return;
+        setPicks(res.picks);
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setPicksBusy(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
+
+  // Today's picks: best positive-edge pick per tracked match kicking off today
+  const todaysPicks = useMemo(() => {
+    const today = isoDay(new Date());
+    const byMatch = new Map<number, ValuePick[]>();
+    for (const p of picks) {
+      if (isoDay(new Date(p.utcDate)) !== today) continue;
+      if (p.edgePct <= 0) continue;
+      const arr = byMatch.get(p.matchId) ?? [];
+      arr.push(p);
+      byMatch.set(p.matchId, arr);
+    }
+    const rows: { match: ValuePick; alternates: number }[] = [];
+    for (const [, list] of byMatch) {
+      const sorted = [...list].sort((a, b) => b.edgePct - a.edgePct);
+      rows.push({ match: sorted[0], alternates: sorted.length - 1 });
+    }
+    rows.sort((a, b) => b.match.edgePct - a.match.edgePct);
+    return rows;
+  }, [picks]);
 
   useEffect(() => {
     setVisible(24);
@@ -157,6 +208,28 @@ function IndexPage() {
     <AppShell>
       <Hero count={matches.length} days={DAYS_WINDOW} />
 
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks")} className="mb-6">
+        <TabsList className="h-10 p-1">
+          <TabsTrigger value="fixtures" className="gap-1.5">
+            <Calendar className="h-3.5 w-3.5" />
+            All fixtures
+          </TabsTrigger>
+          <TabsTrigger value="picks" className="gap-1.5">
+            <Flame className="h-3.5 w-3.5" />
+            Today's picks
+            {todaysPicks.length > 0 && (
+              <span className="ml-1 rounded-md bg-primary/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
+                {todaysPicks.length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="picks" className="mt-6">
+          <TodaysPicksPanel rows={todaysPicks} busy={picksBusy} />
+        </TabsContent>
+
+        <TabsContent value="fixtures" className="mt-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -278,6 +351,8 @@ function IndexPage() {
           )}
         </section>
       )}
+        </TabsContent>
+      </Tabs>
     </AppShell>
   );
 }
@@ -337,6 +412,123 @@ function EmptyState() {
       </p>
     </div>
   );
+}
+
+function TodaysPicksPanel({
+  rows,
+  busy,
+}: {
+  rows: { match: ValuePick; alternates: number }[];
+  busy: boolean;
+}) {
+  if (busy) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-20 animate-pulse rounded-2xl border border-border/60 bg-secondary/40"
+          />
+        ))}
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border/60 px-6 py-16 text-center">
+        <p className="font-display text-lg font-semibold">No picks for today</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Picks appear when a tracked match kicks off today and a bookmaker price beats our model
+          probability (positive edge).
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-3">
+        <h2 className="font-display text-xl font-bold">Today's edges</h2>
+        <div className="h-px flex-1 bg-border/60" />
+        <span className="font-mono text-xs text-muted-foreground">
+          {rows.length} {rows.length === 1 ? "pick" : "picks"}
+        </span>
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-border/60 card-elevated divide-y divide-border/50">
+        {rows.map(({ match, alternates }) => (
+          <PickListItem key={match.matchId} pick={match} alternates={alternates} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PickListItem({ pick, alternates }: { pick: ValuePick; alternates: number }) {
+  const date = new Date(pick.utcDate);
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const tip = formatPickShort(pick);
+  return (
+    <Link
+      to="/match/$matchId"
+      params={{ matchId: String(pick.matchId) }}
+      className="grid grid-cols-[60px_1fr_auto] items-center gap-3 px-4 py-4 transition hover:bg-primary/[0.04]"
+    >
+      <div className="flex flex-col items-center">
+        <div className="font-mono text-sm font-bold tabular-nums">{time}</div>
+        <div className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
+          today
+        </div>
+      </div>
+      <div className="min-w-0">
+        {pick.competition && (
+          <div className="mb-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/80 truncate">
+            {pick.competition}
+          </div>
+        )}
+        <div className="truncate font-display text-sm font-semibold">
+          {pick.homeTeam} <span className="text-muted-foreground">vs</span> {pick.awayTeam}
+        </div>
+        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="rounded bg-secondary/70 px-1.5 py-0.5 font-mono uppercase tracking-wider">
+            {pick.marketLabel}
+          </span>
+          {pick.bookmaker && <span className="truncate">@ {pick.bookmaker}</span>}
+          {alternates > 0 && (
+            <span className="font-mono text-[10px] text-muted-foreground/70">
+              +{alternates} more
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+            {tip}
+          </span>
+          <span className="rounded-md bg-primary px-2.5 py-1 font-mono text-xs font-bold tabular-nums text-primary-foreground">
+            {pick.decimalOdds.toFixed(2)}
+          </span>
+        </div>
+        <span className="font-mono text-[11px] font-bold tabular-nums text-primary">
+          +{pick.edgePct.toFixed(1)}% edge
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+function formatPickShort(p: ValuePick): string {
+  if (p.market === "ou_25" || p.market === "ou_15") {
+    const line = p.market === "ou_25" ? "2.5" : "1.5";
+    const side = p.selection.toLowerCase().startsWith("o") ? "O" : "U";
+    return `${side}${line}`;
+  }
+  if (p.market === "btts") {
+    return `GG ${p.selection.toLowerCase().startsWith("y") ? "YES" : "NO"}`;
+  }
+  if (p.market === "1x2") {
+    return p.selection === "1" ? "Home" : p.selection === "2" ? "Away" : "Draw";
+  }
+  return p.selection;
 }
 
 function isoDay(d: Date): string {
