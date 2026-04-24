@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ValueRouteImport } from './routes/value'
 import { Route as TrackedRouteImport } from './routes/tracked'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchMatchIdRouteImport } from './routes/match.$matchId'
 
+const ValueRoute = ValueRouteImport.update({
+  id: '/value',
+  path: '/value',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TrackedRoute = TrackedRouteImport.update({
   id: '/tracked',
   path: '/tracked',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
+  '/value': typeof ValueRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
+  '/value': typeof ValueRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
 export interface FileRoutesById {
@@ -52,25 +60,34 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
+  '/value': typeof ValueRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/tracked' | '/match/$matchId'
+  fullPaths: '/' | '/login' | '/tracked' | '/value' | '/match/$matchId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/tracked' | '/match/$matchId'
-  id: '__root__' | '/' | '/login' | '/tracked' | '/match/$matchId'
+  to: '/' | '/login' | '/tracked' | '/value' | '/match/$matchId'
+  id: '__root__' | '/' | '/login' | '/tracked' | '/value' | '/match/$matchId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   TrackedRoute: typeof TrackedRoute
+  ValueRoute: typeof ValueRoute
   MatchMatchIdRoute: typeof MatchMatchIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/value': {
+      id: '/value'
+      path: '/value'
+      fullPath: '/value'
+      preLoaderRoute: typeof ValueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tracked': {
       id: '/tracked'
       path: '/tracked'
@@ -106,6 +123,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   TrackedRoute: TrackedRoute,
+  ValueRoute: ValueRoute,
   MatchMatchIdRoute: MatchMatchIdRoute,
 }
 export const routeTree = rootRouteImport
