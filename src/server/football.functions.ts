@@ -1,9 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { fetchMatch, fetchTeamForm, fetchUpcomingMatches } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
+import { createClient } from "@supabase/supabase-js";
+
+function adminClient() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase server env not configured");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
 
@@ -28,10 +35,9 @@ export const getFixtures = createServerFn({ method: "GET" })
   });
 
 export const getMatchWithPredictions = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
   .inputValidator((input: { matchId: number }) => input)
-  .handler(async ({ data, context }) => {
-    const { supabase } = context;
+  .handler(async ({ data }) => {
+    const supabase = adminClient();
     const matchId = Number(data.matchId);
 
     // Try cache first
@@ -80,71 +86,14 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
 
     // Cache (shared, best-effort)
     try {
-      await supabase.from("predictions_cache").upsert(
-        {
-          match_id: matchId,
-          payload: payload as unknown as Record<string, unknown>,
-          updated_at: new Date().toISOString(),
-        } as never,
-      );
+      await supabase.from("predictions_cache").upsert({
+        match_id: matchId,
+        payload: payload as unknown,
+        updated_at: new Date().toISOString(),
+      });
     } catch (e) {
       console.warn("cache write skipped", e);
     }
 
     return payload;
-  });
-
-export const trackMatch = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator(
-    (input: {
-      matchId: number;
-      competition: string | null;
-      homeTeam: string;
-      awayTeam: string;
-      utcDate: string;
-    }) => input,
-  )
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-    const { error } = await supabase.from("tracked_matches").upsert(
-      {
-        user_id: userId,
-        match_id: data.matchId,
-        competition: data.competition,
-        home_team: data.homeTeam,
-        away_team: data.awayTeam,
-        utc_date: data.utcDate,
-      },
-      { onConflict: "user_id,match_id" },
-    );
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
-
-export const untrackMatch = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: { matchId: number }) => input)
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-    const { error } = await supabase
-      .from("tracked_matches")
-      .delete()
-      .eq("user_id", userId)
-      .eq("match_id", data.matchId);
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
-
-export const getTrackedMatches = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { supabase, userId } = context;
-    const { data, error } = await supabase
-      .from("tracked_matches")
-      .select("*")
-      .eq("user_id", userId)
-      .order("utc_date", { ascending: true });
-    if (error) throw new Error(error.message);
-    return { tracked: data ?? [] };
   });
