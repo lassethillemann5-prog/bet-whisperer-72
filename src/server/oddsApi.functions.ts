@@ -8,30 +8,15 @@ function adminClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// The Odds API sport keys we look up against. Soccer competitions are
-// uniquely identified by sport_key; we try a small set of common ones and
-// match by team names + commence_time.
-// Full list: https://api.the-odds-api.com/v4/sports?apiKey=...
-const SOCCER_SPORT_KEYS = [
-  "soccer_epl",
-  "soccer_efl_champ",
-  "soccer_england_league1",
-  "soccer_england_league2",
-  "soccer_spain_la_liga",
-  "soccer_spain_segunda_division",
-  "soccer_germany_bundesliga",
-  "soccer_germany_bundesliga2",
-  "soccer_italy_serie_a",
-  "soccer_italy_serie_b",
-  "soccer_france_ligue_one",
-  "soccer_france_ligue_two",
-  "soccer_netherlands_eredivisie",
-  "soccer_portugal_primeira_liga",
-  "soccer_uefa_champs_league",
-  "soccer_uefa_europa_league",
-  "soccer_uefa_european_championship",
-  "soccer_fifa_world_cup",
-];
+// We dynamically discover all in-season soccer sport keys from the API
+// so we don't miss leagues. Cached briefly per request batch.
+async function listActiveSoccerSports(apiKey: string): Promise<string[]> {
+  const url = `https://api.the-odds-api.com/v4/sports?apiKey=${apiKey}&all=false`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const sports = (await res.json()) as { key: string; group: string; active: boolean }[];
+  return sports.filter((s) => s.group === "Soccer" && s.active).map((s) => s.key);
+}
 
 interface OddsApiOutcome {
   name: string;
@@ -61,7 +46,11 @@ function norm(s: string) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\bfc\b|\bcf\b|\bafc\b|\bsc\b|\bac\b|\bsv\b|\bcd\b|\bif\b/g, "")
+    .replace(
+      /\b(fc|cf|afc|sc|ac|sv|cd|if|bk|bif|aif|sk|fk|nk|hc|cfc|ssc|fsv|tsv|vfb|vfl|tsg|rb|rsc|psv|psg|os|cska|spvgg|gks|ks|os|asd)\b/g,
+      "",
+    )
+    .replace(/\b(united|utd|city|town|rovers|wanderers|athletic|atletico|real|club|de|del|la|el|los|las|the|and)\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
@@ -71,11 +60,13 @@ function teamsMatch(a: string, b: string) {
   const nb = norm(b);
   if (!na || !nb) return false;
   if (na === nb) return true;
-  // partial token overlap: at least 1 long token shared
-  const ta = new Set(na.split(" ").filter((t) => t.length >= 4));
-  const tb = new Set(nb.split(" ").filter((t) => t.length >= 4));
+  // substring containment (after stripping noise)
+  if (na.includes(nb) || nb.includes(na)) return true;
+  // token overlap: at least one shared token of length >= 3
+  const ta = new Set(na.split(" ").filter((t) => t.length >= 3));
+  const tb = new Set(nb.split(" ").filter((t) => t.length >= 3));
   for (const t of ta) if (tb.has(t)) return true;
-  return na.includes(nb) || nb.includes(na);
+  return false;
 }
 
 /** Pick best (median) price for an outcome across bookmakers. */
@@ -152,20 +143,28 @@ function rowsFromEvent(
 /** Fetch odds events for all soccer sport_keys once. Returns flat list. */
 async function fetchAllSoccerEvents(
   apiKey: string,
-): Promise<{ events: OddsApiEvent[]; fatal: string | null }> {
+): Promise<{ events: OddsApiEvent[]; fatal: string | null; sportsTried: number; sportsOk: number }> {
+  const sportKeys = await listActiveSoccerSports(apiKey);
+  if (sportKeys.length === 0) {
+    return { events: [], fatal: "No active soccer sports returned by Odds API", sportsTried: 0, sportsOk: 0 };
+  }
   const all: OddsApiEvent[] = [];
-  for (const sportKey of SOCCER_SPORT_KEYS) {
+  let ok = 0;
+  for (const sportKey of sportKeys) {
     const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&regions=eu,uk&markets=h2h,totals,btts&oddsFormat=decimal&dateFormat=iso`;
     const res = await fetch(url);
     if (!res.ok) {
-      if (res.status === 401) return { events: all, fatal: "Invalid ODDS_API_KEY" };
-      if (res.status === 429) return { events: all, fatal: "Odds API quota exceeded" };
+      if (res.status === 401) return { events: all, fatal: "Invalid ODDS_API_KEY", sportsTried: sportKeys.length, sportsOk: ok };
+      if (res.status === 429) return { events: all, fatal: "Odds API quota exceeded", sportsTried: sportKeys.length, sportsOk: ok };
+      console.warn(`[odds] ${sportKey} returned ${res.status}`);
       continue;
     }
     const events = (await res.json()) as OddsApiEvent[];
+    ok++;
     all.push(...events);
   }
-  return { events: all, fatal: null };
+  console.log(`[odds] fetched ${all.length} events across ${ok}/${sportKeys.length} soccer sports`);
+  return { events: all, fatal: null, sportsTried: sportKeys.length, sportsOk: ok };
 }
 
 function findEventFor(
@@ -173,16 +172,27 @@ function findEventFor(
   homeTeam: string,
   awayTeam: string,
   utcDate: string,
-): OddsApiEvent | null {
+): { event: OddsApiEvent | null; closeTime: number; nameMatchOnly: number } {
   const targetTime = new Date(utcDate).getTime();
+  let closeTime = 0;
+  let nameMatchOnly = 0;
+  let best: OddsApiEvent | null = null;
   for (const ev of events) {
     const evTime = new Date(ev.commence_time).getTime();
-    if (Math.abs(evTime - targetTime) > 6 * 60 * 60 * 1000) continue;
-    if (!teamsMatch(ev.home_team, homeTeam)) continue;
-    if (!teamsMatch(ev.away_team, awayTeam)) continue;
-    return ev;
+    const timeOk = Math.abs(evTime - targetTime) <= 12 * 60 * 60 * 1000;
+    if (timeOk) closeTime++;
+    const homeOk = teamsMatch(ev.home_team, homeTeam);
+    const awayOk = teamsMatch(ev.away_team, awayTeam);
+    if (homeOk && awayOk) {
+      if (!timeOk) {
+        nameMatchOnly++;
+        continue;
+      }
+      best = ev;
+      break;
+    }
   }
-  return null;
+  return { event: best, closeTime, nameMatchOnly };
 }
 
 export const fetchOddsForMatch = createServerFn({ method: "POST" })
@@ -200,16 +210,23 @@ export const fetchOddsForMatch = createServerFn({ method: "POST" })
     if (!apiKey) {
       return { ok: false as const, error: "ODDS_API_KEY is not configured", inserted: 0 };
     }
-    const { events, fatal } = await fetchAllSoccerEvents(apiKey);
+    const { events, fatal, sportsOk, sportsTried } = await fetchAllSoccerEvents(apiKey);
     if (fatal) return { ok: false as const, error: fatal, inserted: 0 };
-    const matchedEvent = findEventFor(events, data.homeTeam, data.awayTeam, data.utcDate);
-    if (!matchedEvent) {
+    const found = findEventFor(events, data.homeTeam, data.awayTeam, data.utcDate);
+    if (!found.event) {
+      console.log(
+        `[odds] no match for "${data.homeTeam}" vs "${data.awayTeam}" — events=${events.length}, sports=${sportsOk}/${sportsTried}, closeTime=${found.closeTime}, nameOnly=${found.nameMatchOnly}`,
+      );
       return {
         ok: false as const,
-        error: `No odds found for ${data.homeTeam} vs ${data.awayTeam}`,
+        error:
+          found.nameMatchOnly > 0
+            ? `Found ${data.homeTeam} vs ${data.awayTeam} but kickoff time differs — match may not be in the odds window`
+            : `No odds for ${data.homeTeam} vs ${data.awayTeam} (searched ${events.length} events across ${sportsOk}/${sportsTried} leagues — league may not be on your Odds API plan)`,
         inserted: 0,
       };
     }
+    const matchedEvent = found.event;
     const supabase = adminClient();
     const rows = rowsFromEvent(matchedEvent, data.userId, data.matchId);
     if (rows.length === 0) {
@@ -249,12 +266,13 @@ export const fetchOddsForAllTracked = createServerFn({ method: "POST" })
     const allRows: ReturnType<typeof rowsFromEvent> = [];
 
     for (const r of rows) {
-      const ev = findEventFor(
+      const found = findEventFor(
         events,
         r.home_team as string,
         r.away_team as string,
         r.utc_date as string,
       );
+      const ev = found.event;
       if (!ev) {
         errors.push(`${r.home_team} vs ${r.away_team}: not found`);
         continue;
