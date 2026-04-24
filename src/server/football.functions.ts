@@ -46,7 +46,7 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
         cached.updated_at &&
         Date.now() - new Date(cached.updated_at).getTime() < CACHE_TTL_MS
       ) {
-        return cached.payload as { match: MatchSummary; predictions: MatchPredictions };
+        return cached.payload as unknown as { match: MatchSummary; predictions: MatchPredictions };
       }
     } catch (e) {
       console.warn("cache read failed", e);
@@ -78,11 +78,15 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
     };
     const payload = { match, predictions };
 
-    // Cache (best effort — needs service role for writes; ignore failure)
+    // Cache (best effort — only succeeds if user has insert rights; ignore failure silently)
     try {
-      await supabase
-        .from("predictions_cache")
-        .upsert({ match_id: matchId, payload, updated_at: new Date().toISOString() });
+      await supabase.from("predictions_cache").upsert([
+        {
+          match_id: matchId,
+          payload: payload as unknown as Record<string, unknown>,
+          updated_at: new Date().toISOString(),
+        },
+      ]);
     } catch (e) {
       console.warn("cache write skipped", e);
     }
