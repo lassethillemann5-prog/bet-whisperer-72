@@ -8,7 +8,7 @@ import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Calendar, Search, Sparkles, Trophy } from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight, Search, Sparkles, Trophy } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -20,10 +20,11 @@ function IndexPage() {
   const navigate = useNavigate();
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [tracked, setTracked] = useState<TrackedRow[]>([]);
-  const [days, setDays] = useState(3);
+  const DAYS_WINDOW = 14;
+  const [selectedDate, setSelectedDate] = useState<string>(() => isoDay(new Date()));
   const [query, setQuery] = useState("");
   const [competition, setCompetition] = useState<string>("all");
-  const [visiblePerDay, setVisiblePerDay] = useState<Record<string, number>>({});
+  const [visible, setVisible] = useState<number>(24);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +37,7 @@ function IndexPage() {
     let cancelled = false;
     setBusy(true);
     setError(null);
-    Promise.all([getFixtures({ data: { days } }), listTracked(user.id)])
+    Promise.all([getFixtures({ data: { days: DAYS_WINDOW } }), listTracked(user.id)])
       .then(([res, trackedRows]) => {
         if (cancelled) return;
         if (res.error) setError(res.error);
@@ -46,26 +47,55 @@ function IndexPage() {
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => !cancelled && setBusy(false));
     return () => { cancelled = true; };
-  }, [user, days]);
+  }, [user]);
 
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
 
   useEffect(() => {
-    setVisiblePerDay({});
-  }, [competition, query, days]);
+    setVisible(24);
+  }, [competition, query, selectedDate]);
+
+  const dateOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of matches) {
+      const k = isoDay(new Date(m.utcDate));
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const arr: { iso: string; label: string; weekday: string; count: number }[] = [];
+    for (let i = 0; i < DAYS_WINDOW; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const iso = isoDay(d);
+      arr.push({
+        iso,
+        label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        weekday:
+          i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString(undefined, { weekday: "short" }),
+        count: counts.get(iso) ?? 0,
+      });
+    }
+    return arr;
+  }, [matches]);
+
+  const dayMatches = useMemo(
+    () => matches.filter((m) => isoDay(new Date(m.utcDate)) === selectedDate),
+    [matches, selectedDate],
+  );
 
   const competitions = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const m of matches) {
+    for (const m of dayMatches) {
       const name = m.competition?.name ?? "Other";
       counts.set(name, (counts.get(name) ?? 0) + 1);
     }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1]);
-  }, [matches]);
+  }, [dayMatches]);
 
   const filtered = useMemo(() => {
-    let out = matches;
+    let out = dayMatches;
     if (competition !== "all") {
       out = out.filter((m) => (m.competition?.name ?? "Other") === competition);
     }
@@ -79,24 +109,17 @@ function IndexPage() {
       );
     }
     return out;
-  }, [matches, query, competition]);
-
-  const groupedByDay = useMemo(() => {
-    const groups = new Map<string, MatchSummary[]>();
-    for (const m of filtered) {
-      const k = new Date(m.utcDate).toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "short",
-        day: "numeric",
-      });
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k)!.push(m);
-    }
-    return Array.from(groups.entries());
-  }, [filtered]);
+  }, [dayMatches, query, competition]);
 
   const PAGE_SIZE = 24;
-  const getVisible = (day: string) => visiblePerDay[day] ?? PAGE_SIZE;
+  const shownMatches = filtered.slice(0, visible);
+  const remaining = filtered.length - shownMatches.length;
+
+  const shiftDate = (delta: number) => {
+    const idx = dateOptions.findIndex((d) => d.iso === selectedDate);
+    const next = Math.max(0, Math.min(dateOptions.length - 1, (idx === -1 ? 0 : idx) + delta));
+    setSelectedDate(dateOptions[next].iso);
+  };
 
   const toggleTrack = async (m: MatchSummary) => {
     if (!user) return;
@@ -125,9 +148,14 @@ function IndexPage() {
 
   if (loading || !user) return null;
 
+  const selectedLabel = (() => {
+    const d = new Date(selectedDate + "T00:00:00");
+    return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  })();
+
   return (
     <AppShell>
-      <Hero count={matches.length} days={days} />
+      <Hero count={matches.length} days={DAYS_WINDOW} />
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
@@ -140,19 +168,45 @@ function IndexPage() {
           />
         </div>
         <div className="flex items-center gap-2">
-          {[3, 7, 14].map((d) => (
-            <Button
-              key={d}
-              variant={days === d ? "default" : "secondary"}
-              size="sm"
-              onClick={() => setDays(d)}
-              className="gap-1.5"
-            >
-              <Calendar className="h-3.5 w-3.5" />
-              {d}d
-            </Button>
-          ))}
+          <Button variant="secondary" size="icon" onClick={() => shiftDate(-1)} aria-label="Previous day">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="rounded-md border border-border/60 bg-secondary/40 px-3 py-1.5 text-center min-w-[180px]">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground flex items-center justify-center gap-1.5">
+              <Calendar className="h-3 w-3" /> {selectedLabel}
+            </div>
+          </div>
+          <Button variant="secondary" size="icon" onClick={() => shiftDate(1)} aria-label="Next day">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
+      </div>
+
+      <div className="mb-6 -mx-1 flex gap-2 overflow-x-auto pb-2 px-1">
+        {dateOptions.map((d) => {
+          const active = d.iso === selectedDate;
+          return (
+            <button
+              key={d.iso}
+              onClick={() => setSelectedDate(d.iso)}
+              className={`shrink-0 rounded-xl border px-3 py-2 text-left transition ${
+                active
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border/60 bg-secondary/40 hover:border-primary/60"
+              }`}
+            >
+              <div
+                className={`font-mono text-[10px] uppercase tracking-[0.18em] ${active ? "opacity-90" : "text-muted-foreground"}`}
+              >
+                {d.weekday}
+              </div>
+              <div className="font-display text-sm font-bold leading-tight">{d.label}</div>
+              <div className={`mt-0.5 font-mono text-[10px] ${active ? "opacity-80" : "text-muted-foreground"}`}>
+                {d.count} {d.count === 1 ? "match" : "matches"}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {competitions.length > 0 && (
@@ -165,7 +219,7 @@ function IndexPage() {
           >
             <Trophy className="h-3.5 w-3.5" />
             All
-            <span className="font-mono text-[10px] opacity-70">{matches.length}</span>
+            <span className="font-mono text-[10px] opacity-70">{dayMatches.length}</span>
           </Button>
           {competitions.map(([name, count]) => (
             <Button
@@ -193,50 +247,36 @@ function IndexPage() {
       ) : filtered.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="space-y-8">
-          {groupedByDay.map(([day, group]) => {
-            const visible = getVisible(day);
-            const shown = group.slice(0, visible);
-            const remaining = group.length - shown.length;
-            return (
-              <section key={day}>
-                <div className="mb-3 flex items-center gap-3">
-                  <h2 className="font-display text-xl font-bold">{day}</h2>
-                  <div className="h-px flex-1 bg-border/60" />
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {shown.length}/{group.length}
-                  </span>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {shown.map((m) => (
-                    <MatchCard
-                      key={m.id}
-                      match={m}
-                      isTracked={trackedIds.has(m.id)}
-                      onToggleTrack={() => toggleTrack(m)}
-                    />
-                  ))}
-                </div>
-                {remaining > 0 && (
-                  <div className="mt-4 flex justify-center">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() =>
-                        setVisiblePerDay((v) => ({
-                          ...v,
-                          [day]: visible + PAGE_SIZE,
-                        }))
-                      }
-                    >
-                      Show {Math.min(PAGE_SIZE, remaining)} more · {remaining} left
-                    </Button>
-                  </div>
-                )}
-              </section>
-            );
-          })}
-        </div>
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h2 className="font-display text-xl font-bold">{selectedLabel}</h2>
+            <div className="h-px flex-1 bg-border/60" />
+            <span className="font-mono text-xs text-muted-foreground">
+              {shownMatches.length}/{filtered.length}
+            </span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {shownMatches.map((m) => (
+              <MatchCard
+                key={m.id}
+                match={m}
+                isTracked={trackedIds.has(m.id)}
+                onToggleTrack={() => toggleTrack(m)}
+              />
+            ))}
+          </div>
+          {remaining > 0 && (
+            <div className="mt-4 flex justify-center">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setVisible((v) => v + PAGE_SIZE)}
+              >
+                Show {Math.min(PAGE_SIZE, remaining)} more · {remaining} left
+              </Button>
+            </div>
+          )}
+        </section>
       )}
     </AppShell>
   );
@@ -297,4 +337,11 @@ function EmptyState() {
       </p>
     </div>
   );
+}
+
+function isoDay(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
