@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
 import { getValuePicks, type ValuePick } from "@/server/valuePicks.functions";
+import { fetchOddsForAllTracked } from "@/server/oddsApi.functions";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, ArrowRight, Filter, Sparkles } from "lucide-react";
+import { TrendingUp, ArrowRight, Filter, Sparkles, Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/value")({
   component: ValuePage,
@@ -17,6 +19,7 @@ function ValuePage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [minEdge, setMinEdge] = useState(0);
+  const [fetching, setFetching] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -39,6 +42,38 @@ function ValuePage() {
       cancelled = true;
     };
   }, [user]);
+
+  const reload = async () => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      const res = await getValuePicks({ data: { userId: user.id } });
+      if (res.error) setError(res.error);
+      setPicks(res.picks);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fetchAll = async () => {
+    if (!user) return;
+    setFetching(true);
+    try {
+      const res = await fetchOddsForAllTracked({ data: { userId: user.id } });
+      if (!res.ok) {
+        toast.error(res.error);
+      } else {
+        toast.success(
+          `Matched ${res.matched}/${res.total} · ${res.inserted ?? 0} odds saved`,
+        );
+        await reload();
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to fetch odds");
+    } finally {
+      setFetching(false);
+    }
+  };
 
   const filtered = useMemo(() => picks.filter((p) => p.edgePct >= minEdge), [picks, minEdge]);
   const valueCount = picks.filter((p) => p.edgePct > 0).length;
@@ -89,6 +124,20 @@ function ValuePage() {
             {e === -100 ? "All" : `≥ ${e}%`}
           </Button>
         ))}
+        <Button
+          variant="default"
+          size="sm"
+          onClick={fetchAll}
+          disabled={fetching}
+          className="ml-auto gap-1.5"
+        >
+          {fetching ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          {fetching ? "Fetching…" : "Fetch odds (API)"}
+        </Button>
       </div>
 
       {error && (

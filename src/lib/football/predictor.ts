@@ -101,6 +101,19 @@ export function predictMarkets(
   const over15 = probOver(1.5);
   const over25 = probOver(2.5);
 
+  // Both Teams To Score (BTTS): P(home>=1 AND away>=1) = 1 - P(home=0) - P(away=0) + P(0-0)
+  let pHome0 = 0,
+    pAway0 = 0,
+    p00 = 0;
+  for (let hh = 0; hh < matrix.length; hh++) {
+    for (let aa = 0; aa < matrix[hh].length; aa++) {
+      if (hh === 0) pAway0 += matrix[hh][aa];
+      if (aa === 0) pHome0 += matrix[hh][aa];
+      if (hh === 0 && aa === 0) p00 += matrix[hh][aa];
+    }
+  }
+  const bttsYes = Math.max(0, Math.min(1, 1 - pHome0 - pAway0 + p00));
+
   // Corners / Shots / Shots on target — approximated from goal expectancy
   // (Football-Data free tier doesn't provide these stats.)
   // Empirical league averages:
@@ -146,6 +159,15 @@ export function predictMarkets(
       probabilities: {
         Over: +(over25 * 100).toFixed(1),
         Under: +((1 - over25) * 100).toFixed(1),
+      },
+    },
+    {
+      market: "btts",
+      label: "Both Teams To Score",
+      pick: bttsYes >= 0.5 ? "Yes" : "No",
+      probabilities: {
+        Yes: +(bttsYes * 100).toFixed(1),
+        No: +((1 - bttsYes) * 100).toFixed(1),
       },
     },
     {
