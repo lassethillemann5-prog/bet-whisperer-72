@@ -95,10 +95,10 @@ function IndexPage() {
     }
     const rows: { match: ValuePick; alternates: number }[] = [];
     for (const [, list] of byMatch) {
-      const sorted = [...list].sort((a, b) => b.edgePct - a.edgePct);
+      const sorted = [...list].sort((a, b) => b.modelProb - a.modelProb);
       rows.push({ match: sorted[0], alternates: sorted.length - 1 });
     }
-    rows.sort((a, b) => b.match.edgePct - a.match.edgePct);
+    rows.sort((a, b) => b.match.modelProb - a.match.modelProb);
     return rows;
   }, [picks]);
 
