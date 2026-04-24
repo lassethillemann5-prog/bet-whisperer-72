@@ -151,12 +151,17 @@ async function fetchAllSoccerEvents(
   const all: OddsApiEvent[] = [];
   let ok = 0;
   for (const sportKey of sportKeys) {
-    const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&regions=eu,uk&markets=h2h,totals,btts&oddsFormat=decimal&dateFormat=iso`;
+    // NOTE: The league-wide /odds endpoint only supports core markets (h2h, totals, spreads).
+    // BTTS is an "additional market" and is only available via per-event endpoints on paid plans.
+    const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&regions=eu,uk&markets=h2h,totals&oddsFormat=decimal&dateFormat=iso`;
     const res = await fetch(url);
     if (!res.ok) {
       if (res.status === 401) return { events: all, fatal: "Invalid ODDS_API_KEY", sportsTried: sportKeys.length, sportsOk: ok };
       if (res.status === 429) return { events: all, fatal: "Odds API quota exceeded", sportsTried: sportKeys.length, sportsOk: ok };
-      console.warn(`[odds] ${sportKey} returned ${res.status}`);
+      // Log body once per failing league for diagnostics
+      let body = "";
+      try { body = (await res.text()).slice(0, 200); } catch { /* ignore */ }
+      console.warn(`[odds] ${sportKey} returned ${res.status} ${body}`);
       continue;
     }
     const events = (await res.json()) as OddsApiEvent[];
