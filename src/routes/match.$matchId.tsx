@@ -5,8 +5,10 @@ import { AppShell } from "@/components/app/AppShell";
 import { getMatchWithPredictions } from "@/server/football.functions";
 import type { MatchPredictions, MatchSummary, MarketPrediction } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
+import { listOddsForMatch, upsertOdds, deleteOdds, type OddsRow } from "@/lib/football/odds";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Sparkles, Star, StarOff, TrendingUp } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ArrowLeft, Sparkles, Star, StarOff, TrendingUp, Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/match/$matchId")({
@@ -21,6 +23,7 @@ function MatchPage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isTracked, setIsTracked] = useState(false);
+  const [odds, setOdds] = useState<OddsRow[]>([]);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -34,11 +37,13 @@ function MatchPage() {
     Promise.all([
       getMatchWithPredictions({ data: { matchId: Number(matchId) } }),
       listTracked(user.id),
+      listOddsForMatch(user.id, Number(matchId)),
     ])
-      .then(([res, tracked]) => {
+      .then(([res, tracked, oddsRows]) => {
         if (cancelled) return;
         setData(res);
         setIsTracked(tracked.some((t) => t.match_id === Number(matchId)));
+        setOdds(oddsRows);
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load match"))
       .finally(() => !cancelled && setBusy(false));
@@ -97,6 +102,13 @@ function MatchPage() {
           />
           <Commentary text={data.predictions.commentary} />
           <MarketsGrid markets={data.predictions.markets} />
+          <OddsSection
+            matchId={data.match.id}
+            userId={user.id}
+            markets={data.predictions.markets}
+            odds={odds}
+            onChange={async () => setOdds(await listOddsForMatch(user.id, data.match.id))}
+          />
           <FormSummary match={data.match} preds={data.predictions} />
         </>
       )}
