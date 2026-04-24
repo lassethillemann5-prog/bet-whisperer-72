@@ -8,7 +8,18 @@ import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Calendar, ChevronLeft, ChevronRight, Search, Sparkles, Trophy } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Link } from "@tanstack/react-router";
+import { getValuePicks, type ValuePick } from "@/server/valuePicks.functions";
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Flame,
+  Search,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -27,6 +38,9 @@ function IndexPage() {
   const [visible, setVisible] = useState<number>(24);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"fixtures" | "picks">("fixtures");
+  const [picks, setPicks] = useState<ValuePick[]>([]);
+  const [picksBusy, setPicksBusy] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -49,7 +63,44 @@ function IndexPage() {
     return () => { cancelled = true; };
   }, [user]);
 
+  // Load value picks for the "Today's picks" tab
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setPicksBusy(true);
+    getValuePicks({ data: { userId: user.id } })
+      .then((res) => {
+        if (cancelled) return;
+        setPicks(res.picks);
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setPicksBusy(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
+
+  // Today's picks: best positive-edge pick per tracked match kicking off today
+  const todaysPicks = useMemo(() => {
+    const today = isoDay(new Date());
+    const byMatch = new Map<number, ValuePick[]>();
+    for (const p of picks) {
+      if (isoDay(new Date(p.utcDate)) !== today) continue;
+      if (p.edgePct <= 0) continue;
+      const arr = byMatch.get(p.matchId) ?? [];
+      arr.push(p);
+      byMatch.set(p.matchId, arr);
+    }
+    const rows: { match: ValuePick; alternates: number }[] = [];
+    for (const [, list] of byMatch) {
+      const sorted = [...list].sort((a, b) => b.edgePct - a.edgePct);
+      rows.push({ match: sorted[0], alternates: sorted.length - 1 });
+    }
+    rows.sort((a, b) => b.match.edgePct - a.match.edgePct);
+    return rows;
+  }, [picks]);
 
   useEffect(() => {
     setVisible(24);
@@ -157,6 +208,28 @@ function IndexPage() {
     <AppShell>
       <Hero count={matches.length} days={DAYS_WINDOW} />
 
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks")} className="mb-6">
+        <TabsList className="h-10 p-1">
+          <TabsTrigger value="fixtures" className="gap-1.5">
+            <Calendar className="h-3.5 w-3.5" />
+            All fixtures
+          </TabsTrigger>
+          <TabsTrigger value="picks" className="gap-1.5">
+            <Flame className="h-3.5 w-3.5" />
+            Today's picks
+            {todaysPicks.length > 0 && (
+              <span className="ml-1 rounded-md bg-primary/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
+                {todaysPicks.length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="picks" className="mt-6">
+          <TodaysPicksPanel rows={todaysPicks} busy={picksBusy} />
+        </TabsContent>
+
+        <TabsContent value="fixtures" className="mt-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -278,6 +351,8 @@ function IndexPage() {
           )}
         </section>
       )}
+        </TabsContent>
+      </Tabs>
     </AppShell>
   );
 }
