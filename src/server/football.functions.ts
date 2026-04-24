@@ -78,18 +78,7 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
     };
     const payload = { match, predictions };
 
-    // Cache (best effort — only succeeds if user has insert rights; ignore failure silently)
-    try {
-      await supabase.from("predictions_cache").upsert([
-        {
-          match_id: matchId,
-          payload: payload as unknown as Record<string, unknown>,
-          updated_at: new Date().toISOString(),
-        },
-      ]);
-    } catch (e) {
-      console.warn("cache write skipped", e);
-    }
+    // Cache writes require service role (no RLS write policy for users); skipped here.
 
     return payload;
   });
