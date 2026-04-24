@@ -357,12 +357,14 @@ function OddsSection({
   userId,
   markets,
   odds,
+  matchMeta,
   onChange,
 }: {
   matchId: number;
   userId: string;
   markets: MarketPrediction[];
   odds: OddsRow[];
+  matchMeta: { homeTeam: string; awayTeam: string; utcDate: string };
   onChange: () => Promise<void> | void;
 }) {
   const [marketKey, setMarketKey] = useState<string>(markets[0]?.market ?? "1x2");
@@ -373,6 +375,7 @@ function OddsSection({
   const [oddsValue, setOddsValue] = useState<string>("");
   const [bookmaker, setBookmaker] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [fetching, setFetching] = useState(false);
 
   // Reset selection when market changes
   useEffect(() => {
@@ -416,14 +419,50 @@ function OddsSection({
     }
   };
 
+  const fetchFromApi = async () => {
+    setFetching(true);
+    try {
+      const res = await fetchOddsForMatch({
+        data: {
+          userId,
+          matchId,
+          homeTeam: matchMeta.homeTeam,
+          awayTeam: matchMeta.awayTeam,
+          utcDate: matchMeta.utcDate,
+        },
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+      } else {
+        toast.success(`Fetched ${res.inserted} odds`);
+        await onChange();
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to fetch odds");
+    } finally {
+      setFetching(false);
+    }
+  };
+
   return (
     <section className="mt-6 rounded-2xl border border-border/60 card-elevated p-5">
       <div className="mb-3 flex items-center gap-2">
         <TrendingUp className="h-4 w-4 text-primary" />
         <h2 className="font-display text-lg font-bold">Bookmaker odds</h2>
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          paste odds → see edge
-        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={fetchFromApi}
+          disabled={fetching}
+          className="ml-auto gap-1.5"
+        >
+          {fetching ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          {fetching ? "Fetching…" : "Fetch from API"}
+        </Button>
       </div>
 
       <div className="grid gap-2 md:grid-cols-[1.2fr_1.4fr_0.9fr_1fr_auto]">
