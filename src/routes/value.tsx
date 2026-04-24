@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { getValuePicks, type ValuePick } from "@/server/valuePicks.functions";
 import { fetchOddsForAllTracked } from "@/server/oddsApi.functions";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, ArrowRight, Filter, Sparkles, Download, Loader2 } from "lucide-react";
+import { ArrowRight, Filter, Sparkles, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/value")({
@@ -77,6 +77,7 @@ function ValuePage() {
 
   const filtered = useMemo(() => picks.filter((p) => p.edgePct >= minEdge), [picks, minEdge]);
   const valueCount = picks.filter((p) => p.edgePct > 0).length;
+  const matchRows = useMemo(() => groupByMatch(filtered), [filtered]);
 
   if (loading || !user) return null;
 
@@ -147,113 +148,218 @@ function ValuePage() {
       )}
 
       {busy ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="h-40 animate-pulse rounded-2xl border border-border/60 bg-secondary/40"
+              className="h-16 animate-pulse rounded-xl border border-border/60 bg-secondary/40"
             />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : matchRows.length === 0 ? (
         <EmptyValue hasAny={picks.length > 0} />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((p) => (
-            <PickCard key={p.oddsId} p={p} />
-          ))}
-        </div>
+        <PicksTable rows={matchRows} />
       )}
     </AppShell>
   );
 }
 
-function PickCard({ p }: { p: ValuePick }) {
-  const positive = p.edgePct > 0;
-  const date = new Date(p.utcDate);
+interface MatchRow {
+  matchId: number;
+  homeTeam: string;
+  awayTeam: string;
+  competition: string | null;
+  utcDate: string;
+  goals: ValuePick | null; // best O/U pick (over_2.5 preferred, fallback over_1.5)
+  btts: ValuePick | null; // best BTTS pick
+  best: ValuePick | null; // overall highest edge
+}
+
+function groupByMatch(picks: ValuePick[]): MatchRow[] {
+  const byMatch = new Map<number, ValuePick[]>();
+  for (const p of picks) {
+    const arr = byMatch.get(p.matchId) ?? [];
+    arr.push(p);
+    byMatch.set(p.matchId, arr);
+  }
+
+  const rows: MatchRow[] = [];
+  for (const [matchId, list] of byMatch) {
+    const first = list[0];
+    const goalsCandidates = list.filter((p) => p.market === "ou_25" || p.market === "ou_15");
+    // prefer 2.5 line
+    const goals =
+      goalsCandidates.find((p) => p.market === "ou_25") ??
+      goalsCandidates.find((p) => p.market === "ou_15") ??
+      null;
+    const btts = list.find((p) => p.market === "btts") ?? null;
+    const best = [...list].sort((a, b) => b.edgePct - a.edgePct)[0] ?? null;
+    rows.push({
+      matchId,
+      homeTeam: first.homeTeam,
+      awayTeam: first.awayTeam,
+      competition: first.competition,
+      utcDate: first.utcDate,
+      goals,
+      btts,
+      best,
+    });
+  }
+
+  rows.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
+  return rows;
+}
+
+function PicksTable({ rows }: { rows: MatchRow[] }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border/60 card-elevated">
+      {/* Header */}
+      <div className="hidden md:grid grid-cols-[110px_1fr_110px_110px_140px] items-center gap-3 border-b border-border/50 bg-secondary/30 px-5 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        <div>Date</div>
+        <div className="text-center">Match</div>
+        <div className="text-center">Goals</div>
+        <div className="text-center">GG</div>
+        <div className="text-center">Best Tip</div>
+      </div>
+      <div className="divide-y divide-border/50">
+        {rows.map((r) => (
+          <PickRow key={r.matchId} row={r} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PickRow({ row }: { row: MatchRow }) {
+  const date = new Date(row.utcDate);
   return (
     <Link
       to="/match/$matchId"
-      params={{ matchId: String(p.matchId) }}
-      className="group block rounded-2xl border border-border/60 card-elevated p-5 transition hover:border-primary/60"
+      params={{ matchId: String(row.matchId) }}
+      className="group grid grid-cols-1 md:grid-cols-[110px_1fr_110px_110px_140px] items-center gap-3 px-5 py-4 transition hover:bg-primary/[0.04]"
     >
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground truncate">
-          {p.competition ?? "—"}
-        </span>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
+      {/* Date */}
+      <div className="flex md:flex-col items-center md:items-start justify-between gap-2">
+        <div className="font-mono text-sm font-semibold tabular-nums">
           {date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-        </span>
-      </div>
-      <div className="mt-2 font-display text-base font-bold leading-tight">
-        {p.homeTeam} <span className="text-muted-foreground">vs</span> {p.awayTeam}
+        </div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+          {date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+        </div>
       </div>
 
-      <div className="mt-3 rounded-xl border border-border/60 bg-secondary/40 px-3 py-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          {p.marketLabel}
-        </div>
-        <div className="mt-0.5 flex items-baseline justify-between gap-2">
-          <div className="font-display text-sm font-semibold">{p.selection}</div>
-          <div className="font-mono text-base font-bold tabular-nums text-primary">
-            {p.decimalOdds.toFixed(2)}
+      {/* Match */}
+      <div className="flex flex-col items-center text-center">
+        {row.competition && (
+          <div className="mb-1 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/80 truncate max-w-full">
+            {row.competition}
           </div>
-        </div>
-        {p.bookmaker && (
-          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">@ {p.bookmaker}</div>
         )}
+        <div className="font-display text-sm font-semibold leading-tight">
+          <span>{row.homeTeam}</span>
+          <span className="mx-2 text-muted-foreground">vs</span>
+          <span>{row.awayTeam}</span>
+        </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Stat label="Model" value={`${(p.modelProb * 100).toFixed(1)}%`} />
-        <Stat label="Implied" value={`${(p.impliedProb * 100).toFixed(1)}%`} />
-        <Stat
-          label="Edge"
-          value={`${positive ? "+" : ""}${p.edgePct.toFixed(1)}%`}
-          highlight={positive ? "good" : "bad"}
-        />
+      {/* Goals */}
+      <div className="flex justify-center">
+        <PickPill pick={row.goals} fallback="—" formatLabel={formatGoalsLabel} />
       </div>
 
-      <div
-        className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] ${
-          positive
-            ? "bg-primary/15 text-primary"
-            : "bg-destructive/10 text-destructive"
-        }`}
-      >
-        <TrendingUp className="h-3 w-3" /> EV {p.evPct >= 0 ? "+" : ""}
-        {p.evPct.toFixed(1)}%
-        <ArrowRight className="ml-1 h-3 w-3 opacity-0 transition group-hover:opacity-100" />
+      {/* GG (BTTS) */}
+      <div className="flex justify-center">
+        <PickPill pick={row.btts} fallback="—" formatLabel={formatBttsLabel} />
+      </div>
+
+      {/* Best Tip */}
+      <div className="flex justify-center">
+        <BestTipPill pick={row.best} />
       </div>
     </Link>
   );
 }
 
-function Stat({
-  label,
-  value,
-  highlight,
+function formatGoalsLabel(p: ValuePick): string {
+  // "Over" -> O2.5, "Under" -> U2.5 (line from market key)
+  const line = p.market === "ou_25" ? "2.5" : p.market === "ou_15" ? "1.5" : "";
+  const side = p.selection.toLowerCase().startsWith("o") ? "O" : "U";
+  return `${side}${line}`;
+}
+
+function formatBttsLabel(p: ValuePick): string {
+  return p.selection.toLowerCase().startsWith("y") ? "YES" : "NO";
+}
+
+function PickPill({
+  pick,
+  fallback,
+  formatLabel,
 }: {
-  label: string;
-  value: string;
-  highlight?: "good" | "bad";
+  pick: ValuePick | null;
+  fallback: string;
+  formatLabel: (p: ValuePick) => string;
 }) {
+  if (!pick) {
+    return (
+      <span className="font-mono text-[11px] text-muted-foreground/60">{fallback}</span>
+    );
+  }
+  const positive = pick.edgePct > 0;
   return (
-    <div className="rounded-lg bg-secondary/60 py-2 text-center">
-      <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
-        {label}
-      </div>
-      <div
-        className={`font-display text-sm font-bold tabular-nums ${
-          highlight === "good"
-            ? "text-primary"
-            : highlight === "bad"
-            ? "text-destructive"
-            : ""
+    <div className="flex flex-col items-center gap-1">
+      <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+        {formatLabel(pick)}
+      </span>
+      <span
+        className={`min-w-[52px] rounded-md px-2.5 py-1 text-center font-mono text-xs font-bold tabular-nums ${
+          positive
+            ? "bg-primary/20 text-primary"
+            : "bg-secondary text-foreground/70"
         }`}
       >
-        {value}
+        {pick.decimalOdds.toFixed(2)}
+      </span>
+    </div>
+  );
+}
+
+function BestTipPill({ pick }: { pick: ValuePick | null }) {
+  if (!pick) {
+    return <span className="font-mono text-[11px] text-muted-foreground/60">—</span>;
+  }
+  const positive = pick.edgePct > 0;
+  // short label
+  let short = pick.selection;
+  if (pick.market === "ou_25" || pick.market === "ou_15") short = formatGoalsLabel(pick);
+  else if (pick.market === "btts") short = `GG ${formatBttsLabel(pick)}`;
+  else if (pick.market === "1x2") {
+    short = pick.selection === "1" ? "Home" : pick.selection === "2" ? "Away" : "Draw";
+  }
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+        {short}
+      </span>
+      <div className="flex items-center gap-1.5">
+        <span
+          className={`min-w-[52px] rounded-md px-2.5 py-1 text-center font-mono text-xs font-bold tabular-nums ${
+            positive
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-foreground/70"
+          }`}
+        >
+          {pick.decimalOdds.toFixed(2)}
+        </span>
+        <span
+          className={`font-mono text-[10px] font-bold tabular-nums ${
+            positive ? "text-primary" : "text-muted-foreground"
+          }`}
+        >
+          {positive ? "+" : ""}
+          {pick.edgePct.toFixed(1)}%
+        </span>
       </div>
     </div>
   );
