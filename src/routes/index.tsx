@@ -508,9 +508,12 @@ function PickListItem({ pick, alternates }: { pick: ValuePick; alternates: numbe
             {pick.decimalOdds.toFixed(2)}
           </span>
         </div>
-        <span className="font-mono text-[11px] font-bold tabular-nums text-primary">
-          +{pick.edgePct.toFixed(1)}% edge
-        </span>
+        <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums">
+          <span className="font-bold text-primary">
+            {(pick.modelProb * 100).toFixed(0)}% prob
+          </span>
+          <span className="text-muted-foreground">+{pick.edgePct.toFixed(1)}% edge</span>
+        </div>
       </div>
     </Link>
   );
