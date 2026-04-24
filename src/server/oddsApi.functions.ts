@@ -103,6 +103,88 @@ function pickBestPrice(
   return candidates[0];
 }
 
+/** Build the upsert rows from a matched event. */
+function rowsFromEvent(
+  ev: OddsApiEvent,
+  userId: string,
+  matchId: number,
+) {
+  const upserts: {
+    user_id: string;
+    match_id: number;
+    market: string;
+    selection: string;
+    decimal_odds: number;
+    bookmaker: string;
+    line: number | null;
+  }[] = [];
+  const push = (
+    market: string,
+    selection: string,
+    p: { price: number; book: string } | null,
+    line: number | null,
+  ) => {
+    if (!p) return;
+    upserts.push({
+      user_id: userId,
+      match_id: matchId,
+      market,
+      selection,
+      decimal_odds: p.price,
+      bookmaker: p.book,
+      line,
+    });
+  };
+
+  push("1x2", "1", pickBestPrice(ev.bookmakers, "h2h", ev.home_team), null);
+  push("1x2", "X", pickBestPrice(ev.bookmakers, "h2h", "Draw"), null);
+  push("1x2", "2", pickBestPrice(ev.bookmakers, "h2h", ev.away_team), null);
+  push("ou_25", "Over", pickBestPrice(ev.bookmakers, "totals", "Over", 2.5), 2.5);
+  push("ou_25", "Under", pickBestPrice(ev.bookmakers, "totals", "Under", 2.5), 2.5);
+  push("ou_15", "Over", pickBestPrice(ev.bookmakers, "totals", "Over", 1.5), 1.5);
+  push("ou_15", "Under", pickBestPrice(ev.bookmakers, "totals", "Under", 1.5), 1.5);
+  push("btts", "Yes", pickBestPrice(ev.bookmakers, "btts", "Yes"), null);
+  push("btts", "No", pickBestPrice(ev.bookmakers, "btts", "No"), null);
+
+  return upserts;
+}
+
+/** Fetch odds events for all soccer sport_keys once. Returns flat list. */
+async function fetchAllSoccerEvents(
+  apiKey: string,
+): Promise<{ events: OddsApiEvent[]; fatal: string | null }> {
+  const all: OddsApiEvent[] = [];
+  for (const sportKey of SOCCER_SPORT_KEYS) {
+    const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&regions=eu,uk&markets=h2h,totals,btts&oddsFormat=decimal&dateFormat=iso`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      if (res.status === 401) return { events: all, fatal: "Invalid ODDS_API_KEY" };
+      if (res.status === 429) return { events: all, fatal: "Odds API quota exceeded" };
+      continue;
+    }
+    const events = (await res.json()) as OddsApiEvent[];
+    all.push(...events);
+  }
+  return { events: all, fatal: null };
+}
+
+function findEventFor(
+  events: OddsApiEvent[],
+  homeTeam: string,
+  awayTeam: string,
+  utcDate: string,
+): OddsApiEvent | null {
+  const targetTime = new Date(utcDate).getTime();
+  for (const ev of events) {
+    const evTime = new Date(ev.commence_time).getTime();
+    if (Math.abs(evTime - targetTime) > 6 * 60 * 60 * 1000) continue;
+    if (!teamsMatch(ev.home_team, homeTeam)) continue;
+    if (!teamsMatch(ev.away_team, awayTeam)) continue;
+    return ev;
+  }
+  return null;
+}
+
 export const fetchOddsForMatch = createServerFn({ method: "POST" })
   .inputValidator(
     (input: {
@@ -118,104 +200,25 @@ export const fetchOddsForMatch = createServerFn({ method: "POST" })
     if (!apiKey) {
       return { ok: false as const, error: "ODDS_API_KEY is not configured", inserted: 0 };
     }
-
-    const targetTime = new Date(data.utcDate).getTime();
-    const markets = "h2h,totals,btts";
-
-    let matchedEvent: OddsApiEvent | null = null;
-    let lastError: string | null = null;
-
-    for (const sportKey of SOCCER_SPORT_KEYS) {
-      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&regions=eu,uk&markets=${markets}&oddsFormat=decimal&dateFormat=iso`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        // 404 = sport not in plan; 422 = invalid market for sport. Continue searching.
-        if (res.status === 401) {
-          return { ok: false as const, error: "Invalid ODDS_API_KEY", inserted: 0 };
-        }
-        if (res.status === 429) {
-          return { ok: false as const, error: "Odds API quota exceeded", inserted: 0 };
-        }
-        lastError = `${sportKey}: ${res.status}`;
-        continue;
-      }
-      const events = (await res.json()) as OddsApiEvent[];
-      for (const ev of events) {
-        const evTime = new Date(ev.commence_time).getTime();
-        // within 6 hours of target kick-off and team names match
-        if (Math.abs(evTime - targetTime) > 6 * 60 * 60 * 1000) continue;
-        if (!teamsMatch(ev.home_team, data.homeTeam)) continue;
-        if (!teamsMatch(ev.away_team, data.awayTeam)) continue;
-        matchedEvent = ev;
-        break;
-      }
-      if (matchedEvent) break;
-    }
-
+    const { events, fatal } = await fetchAllSoccerEvents(apiKey);
+    if (fatal) return { ok: false as const, error: fatal, inserted: 0 };
+    const matchedEvent = findEventFor(events, data.homeTeam, data.awayTeam, data.utcDate);
     if (!matchedEvent) {
       return {
         ok: false as const,
-        error: `No odds found for ${data.homeTeam} vs ${data.awayTeam}${
-          lastError ? ` (last: ${lastError})` : ""
-        }`,
+        error: `No odds found for ${data.homeTeam} vs ${data.awayTeam}`,
         inserted: 0,
       };
     }
-
     const supabase = adminClient();
-    const upserts: {
-      market: string;
-      selection: string;
-      decimal_odds: number;
-      bookmaker: string;
-      line: number | null;
-    }[] = [];
-
-    // 1X2
-    const home1 = pickBestPrice(matchedEvent.bookmakers, "h2h", matchedEvent.home_team);
-    const draw1 = pickBestPrice(matchedEvent.bookmakers, "h2h", "Draw");
-    const away1 = pickBestPrice(matchedEvent.bookmakers, "h2h", matchedEvent.away_team);
-    if (home1) upserts.push({ market: "1x2", selection: "1", decimal_odds: home1.price, bookmaker: home1.book, line: null });
-    if (draw1) upserts.push({ market: "1x2", selection: "X", decimal_odds: draw1.price, bookmaker: draw1.book, line: null });
-    if (away1) upserts.push({ market: "1x2", selection: "2", decimal_odds: away1.price, bookmaker: away1.book, line: null });
-
-    // Over/Under 2.5
-    const o25 = pickBestPrice(matchedEvent.bookmakers, "totals", "Over", 2.5);
-    const u25 = pickBestPrice(matchedEvent.bookmakers, "totals", "Under", 2.5);
-    if (o25) upserts.push({ market: "ou_25", selection: "Over", decimal_odds: o25.price, bookmaker: o25.book, line: 2.5 });
-    if (u25) upserts.push({ market: "ou_25", selection: "Under", decimal_odds: u25.price, bookmaker: u25.book, line: 2.5 });
-
-    // Over/Under 1.5
-    const o15 = pickBestPrice(matchedEvent.bookmakers, "totals", "Over", 1.5);
-    const u15 = pickBestPrice(matchedEvent.bookmakers, "totals", "Under", 1.5);
-    if (o15) upserts.push({ market: "ou_15", selection: "Over", decimal_odds: o15.price, bookmaker: o15.book, line: 1.5 });
-    if (u15) upserts.push({ market: "ou_15", selection: "Under", decimal_odds: u15.price, bookmaker: u15.book, line: 1.5 });
-
-    // BTTS
-    const bttsYes = pickBestPrice(matchedEvent.bookmakers, "btts", "Yes");
-    const bttsNo = pickBestPrice(matchedEvent.bookmakers, "btts", "No");
-    if (bttsYes) upserts.push({ market: "btts", selection: "Yes", decimal_odds: bttsYes.price, bookmaker: bttsYes.book, line: null });
-    if (bttsNo) upserts.push({ market: "btts", selection: "No", decimal_odds: bttsNo.price, bookmaker: bttsNo.book, line: null });
-
-    if (upserts.length === 0) {
+    const rows = rowsFromEvent(matchedEvent, data.userId, data.matchId);
+    if (rows.length === 0) {
       return { ok: false as const, error: "Matched event but no usable prices", inserted: 0 };
     }
-
-    const rows = upserts.map((u) => ({
-      user_id: data.userId,
-      match_id: data.matchId,
-      market: u.market,
-      selection: u.selection,
-      decimal_odds: u.decimal_odds,
-      bookmaker: u.bookmaker,
-      line: u.line,
-    }));
-
     const { error } = await supabase
       .from("match_odds")
       .upsert(rows, { onConflict: "user_id,match_id,market,selection" });
     if (error) return { ok: false as const, error: error.message, inserted: 0 };
-
     return { ok: true as const, inserted: rows.length, source: matchedEvent.sport_key };
   });
 
@@ -236,34 +239,40 @@ export const fetchOddsForAllTracked = createServerFn({ method: "POST" })
     if (rows.length === 0)
       return { ok: true as const, matched: 0, total: 0, inserted: 0 };
 
+    // Fetch odds across all soccer sport keys ONCE, then match locally
+    const { events, fatal } = await fetchAllSoccerEvents(apiKey);
+    if (fatal) return { ok: false as const, error: fatal, matched: 0, total: rows.length };
+
     let matched = 0;
     let inserted = 0;
     const errors: string[] = [];
+    const allRows: ReturnType<typeof rowsFromEvent> = [];
 
-    // Sequential to keep API quota predictable
     for (const r of rows) {
-      try {
-        const res = await fetchOddsForMatch({
-          data: {
-            userId: data.userId,
-            matchId: r.match_id as number,
-            homeTeam: r.home_team as string,
-            awayTeam: r.away_team as string,
-            utcDate: r.utc_date as string,
-          },
-        });
-        if (res.ok) {
-          matched++;
-          inserted += res.inserted;
-        } else if (res.error?.startsWith("Odds API quota exceeded") || res.error?.startsWith("Invalid ODDS_API_KEY")) {
-          // Stop early on fatal errors
-          return { ok: false as const, error: res.error, matched, total: rows.length, inserted };
-        } else {
-          errors.push(`${r.home_team} vs ${r.away_team}: ${res.error}`);
-        }
-      } catch (e) {
-        errors.push(`${r.home_team} vs ${r.away_team}: ${e instanceof Error ? e.message : "error"}`);
+      const ev = findEventFor(
+        events,
+        r.home_team as string,
+        r.away_team as string,
+        r.utc_date as string,
+      );
+      if (!ev) {
+        errors.push(`${r.home_team} vs ${r.away_team}: not found`);
+        continue;
       }
+      const evRows = rowsFromEvent(ev, data.userId, r.match_id as number);
+      if (evRows.length > 0) {
+        matched++;
+        inserted += evRows.length;
+        allRows.push(...evRows);
+      }
+    }
+
+    if (allRows.length > 0) {
+      const { error: upErr } = await supabase
+        .from("match_odds")
+        .upsert(allRows, { onConflict: "user_id,match_id,market,selection" });
+      if (upErr)
+        return { ok: false as const, error: upErr.message, matched, total: rows.length, inserted };
     }
 
     return {
