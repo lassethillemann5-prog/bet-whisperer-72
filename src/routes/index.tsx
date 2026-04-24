@@ -50,6 +50,10 @@ function IndexPage() {
 
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
 
+  useEffect(() => {
+    setVisiblePerDay({});
+  }, [competition, query, days]);
+
   const competitions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const m of matches) {
