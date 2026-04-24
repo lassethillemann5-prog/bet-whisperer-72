@@ -8,8 +8,9 @@ import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
 import { listOddsForMatch, upsertOdds, deleteOdds, type OddsRow } from "@/lib/football/odds";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Sparkles, Star, StarOff, TrendingUp, Trash2, Plus } from "lucide-react";
+import { ArrowLeft, Sparkles, Star, StarOff, TrendingUp, Trash2, Plus, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { fetchOddsForMatch } from "@/server/oddsApi.functions";
 
 export const Route = createFileRoute("/match/$matchId")({
   component: MatchPage,
@@ -107,6 +108,11 @@ function MatchPage() {
             userId={user.id}
             markets={data.predictions.markets}
             odds={odds}
+            matchMeta={{
+              homeTeam: data.match.homeTeam.name,
+              awayTeam: data.match.awayTeam.name,
+              utcDate: data.match.utcDate,
+            }}
             onChange={async () => setOdds(await listOddsForMatch(user.id, data.match.id))}
           />
           <FormSummary match={data.match} preds={data.predictions} />
