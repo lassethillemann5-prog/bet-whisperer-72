@@ -78,7 +78,18 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
     };
     const payload = { match, predictions };
 
-    // Cache writes require service role (no RLS write policy for users); skipped here.
+    // Cache (shared, best-effort)
+    try {
+      await supabase.from("predictions_cache").upsert(
+        {
+          match_id: matchId,
+          payload: payload as unknown as Record<string, unknown>,
+          updated_at: new Date().toISOString(),
+        } as never,
+      );
+    } catch (e) {
+      console.warn("cache write skipped", e);
+    }
 
     return payload;
   });
