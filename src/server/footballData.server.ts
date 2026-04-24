@@ -1,8 +1,12 @@
 import type { MatchSummary, TeamForm } from "@/lib/football/types";
 
+// Provider: API-SPORTS Football v3 (https://www.api-football.com/documentation-v3)
+// Header: x-apisports-key — Pro keys are sent the same way as free keys.
 const BASE = "https://v3.football.api-sports.io";
 
 function getKey(): string {
+  // Stored under FOOTBALL_DATA_API_KEY for legacy reasons; value is the
+  // API-SPORTS key from https://dashboard.api-football.com/.
   const key = process.env.FOOTBALL_DATA_API_KEY;
   if (!key) throw new Error("FOOTBALL_DATA_API_KEY is not configured");
   return key;
