@@ -2,6 +2,7 @@ export type MarketKey =
   | "1x2"
   | "ou_15"
   | "ou_25"
+  | "btts"
   | "corners"
   | "shots"
   | "shots_on_target";
