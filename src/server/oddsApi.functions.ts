@@ -175,21 +175,21 @@ export const fetchOddsForMatch = createServerFn({ method: "POST" })
     const home1 = pickBestPrice(matchedEvent.bookmakers, "h2h", matchedEvent.home_team);
     const draw1 = pickBestPrice(matchedEvent.bookmakers, "h2h", "Draw");
     const away1 = pickBestPrice(matchedEvent.bookmakers, "h2h", matchedEvent.away_team);
-    if (home1) upserts.push({ market: "1x2", selection: "Home", decimal_odds: home1.price, bookmaker: home1.book, line: null });
-    if (draw1) upserts.push({ market: "1x2", selection: "Draw", decimal_odds: draw1.price, bookmaker: draw1.book, line: null });
-    if (away1) upserts.push({ market: "1x2", selection: "Away", decimal_odds: away1.price, bookmaker: away1.book, line: null });
+    if (home1) upserts.push({ market: "1x2", selection: "1", decimal_odds: home1.price, bookmaker: home1.book, line: null });
+    if (draw1) upserts.push({ market: "1x2", selection: "X", decimal_odds: draw1.price, bookmaker: draw1.book, line: null });
+    if (away1) upserts.push({ market: "1x2", selection: "2", decimal_odds: away1.price, bookmaker: away1.book, line: null });
 
     // Over/Under 2.5
     const o25 = pickBestPrice(matchedEvent.bookmakers, "totals", "Over", 2.5);
     const u25 = pickBestPrice(matchedEvent.bookmakers, "totals", "Under", 2.5);
-    if (o25) upserts.push({ market: "ou_25", selection: "Over 2.5", decimal_odds: o25.price, bookmaker: o25.book, line: 2.5 });
-    if (u25) upserts.push({ market: "ou_25", selection: "Under 2.5", decimal_odds: u25.price, bookmaker: u25.book, line: 2.5 });
+    if (o25) upserts.push({ market: "ou_25", selection: "Over", decimal_odds: o25.price, bookmaker: o25.book, line: 2.5 });
+    if (u25) upserts.push({ market: "ou_25", selection: "Under", decimal_odds: u25.price, bookmaker: u25.book, line: 2.5 });
 
     // Over/Under 1.5
     const o15 = pickBestPrice(matchedEvent.bookmakers, "totals", "Over", 1.5);
     const u15 = pickBestPrice(matchedEvent.bookmakers, "totals", "Under", 1.5);
-    if (o15) upserts.push({ market: "ou_15", selection: "Over 1.5", decimal_odds: o15.price, bookmaker: o15.book, line: 1.5 });
-    if (u15) upserts.push({ market: "ou_15", selection: "Under 1.5", decimal_odds: u15.price, bookmaker: u15.book, line: 1.5 });
+    if (o15) upserts.push({ market: "ou_15", selection: "Over", decimal_odds: o15.price, bookmaker: o15.book, line: 1.5 });
+    if (u15) upserts.push({ market: "ou_15", selection: "Under", decimal_odds: u15.price, bookmaker: u15.book, line: 1.5 });
 
     // BTTS
     const bttsYes = pickBestPrice(matchedEvent.bookmakers, "btts", "Yes");
