@@ -345,3 +345,191 @@ function Stat({ label, v }: { label: string; v: number | string }) {
     </div>
   );
 }
+
+function OddsSection({
+  matchId,
+  userId,
+  markets,
+  odds,
+  onChange,
+}: {
+  matchId: number;
+  userId: string;
+  markets: MarketPrediction[];
+  odds: OddsRow[];
+  onChange: () => Promise<void> | void;
+}) {
+  const [marketKey, setMarketKey] = useState<string>(markets[0]?.market ?? "1x2");
+  const selected = markets.find((m) => m.market === marketKey) ?? markets[0];
+  const [selection, setSelection] = useState<string>(
+    selected ? Object.keys(selected.probabilities)[0] : "",
+  );
+  const [oddsValue, setOddsValue] = useState<string>("");
+  const [bookmaker, setBookmaker] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  // Reset selection when market changes
+  useEffect(() => {
+    const m = markets.find((x) => x.market === marketKey);
+    if (m) setSelection(Object.keys(m.probabilities)[0] ?? "");
+  }, [marketKey, markets]);
+
+  const submit = async () => {
+    const num = parseFloat(oddsValue.replace(",", "."));
+    if (!selected || !selection || !(num > 1)) {
+      toast.error("Enter decimal odds greater than 1");
+      return;
+    }
+    setSaving(true);
+    try {
+      await upsertOdds({
+        userId,
+        matchId,
+        market: selected.market,
+        selection,
+        decimalOdds: num,
+        bookmaker: bookmaker.trim() || null,
+        line: selected.line ?? null,
+      });
+      setOddsValue("");
+      await onChange();
+      toast.success("Odds saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await deleteOdds(userId, id);
+      await onChange();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete");
+    }
+  };
+
+  return (
+    <section className="mt-6 rounded-2xl border border-border/60 card-elevated p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <TrendingUp className="h-4 w-4 text-primary" />
+        <h2 className="font-display text-lg font-bold">Bookmaker odds</h2>
+        <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          paste odds → see edge
+        </span>
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-[1.2fr_1.4fr_0.9fr_1fr_auto]">
+        <select
+          value={marketKey}
+          onChange={(e) => setMarketKey(e.target.value)}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          {markets.map((m) => (
+            <option key={m.market} value={m.market}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={selection}
+          onChange={(e) => setSelection(e.target.value)}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          {selected &&
+            Object.entries(selected.probabilities).map(([k, v]) => (
+              <option key={k} value={k}>
+                {k} · model {v.toFixed(1)}%
+              </option>
+            ))}
+        </select>
+        <Input
+          type="number"
+          inputMode="decimal"
+          step="0.01"
+          min="1.01"
+          placeholder="Odds (e.g. 2.10)"
+          value={oddsValue}
+          onChange={(e) => setOddsValue(e.target.value)}
+        />
+        <Input
+          placeholder="Bookmaker (optional)"
+          value={bookmaker}
+          onChange={(e) => setBookmaker(e.target.value)}
+        />
+        <Button onClick={submit} disabled={saving} className="gap-1.5">
+          <Plus className="h-4 w-4" /> Save
+        </Button>
+      </div>
+
+      {odds.length > 0 && (
+        <div className="mt-5 space-y-2">
+          {odds.map((o) => {
+            const market = markets.find((m) => m.market === o.market);
+            const modelPct = market?.probabilities[o.selection];
+            const decimalOdds = Number(o.decimal_odds);
+            const impliedPct = (1 / decimalOdds) * 100;
+            const edge =
+              typeof modelPct === "number" ? modelPct - impliedPct : null;
+            const ev =
+              typeof modelPct === "number"
+                ? (modelPct / 100) * decimalOdds * 100 - 100
+                : null;
+            return (
+              <div
+                key={o.id}
+                className="grid grid-cols-1 gap-2 rounded-xl border border-border/60 bg-secondary/30 px-4 py-3 text-sm md:grid-cols-[1.5fr_1fr_1fr_1fr_auto] md:items-center"
+              >
+                <div>
+                  <div className="font-display font-semibold">{market?.label ?? o.market}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {o.selection}
+                    {o.bookmaker ? ` · ${o.bookmaker}` : ""}
+                  </div>
+                </div>
+                <Stat label="Odds" v={decimalOdds.toFixed(2)} />
+                <Stat
+                  label="Model"
+                  v={typeof modelPct === "number" ? `${modelPct.toFixed(1)}%` : "—"}
+                />
+                <div className="rounded-lg bg-background/60 py-2 text-center">
+                  <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
+                    Edge / EV
+                  </div>
+                  <div
+                    className={`font-display text-sm font-bold tabular-nums ${
+                      edge !== null && edge > 0
+                        ? "text-primary"
+                        : edge !== null
+                        ? "text-destructive"
+                        : ""
+                    }`}
+                  >
+                    {edge !== null
+                      ? `${edge > 0 ? "+" : ""}${edge.toFixed(1)}%`
+                      : "—"}
+                    {ev !== null && (
+                      <span className="ml-1 font-mono text-[10px] opacity-70">
+                        ({ev > 0 ? "+" : ""}
+                        {ev.toFixed(1)})
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => remove(o.id)}
+                  aria-label="Remove odds"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
