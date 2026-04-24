@@ -8,7 +8,7 @@ import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Calendar, Search, Sparkles } from "lucide-react";
+import { Calendar, Search, Sparkles, Trophy } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -20,8 +20,10 @@ function IndexPage() {
   const navigate = useNavigate();
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [tracked, setTracked] = useState<TrackedRow[]>([]);
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(3);
   const [query, setQuery] = useState("");
+  const [competition, setCompetition] = useState<string>("all");
+  const [visiblePerDay, setVisiblePerDay] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,16 +50,36 @@ function IndexPage() {
 
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
 
+  useEffect(() => {
+    setVisiblePerDay({});
+  }, [competition, query, days]);
+
+  const competitions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of matches) {
+      const name = m.competition?.name ?? "Other";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1]);
+  }, [matches]);
+
   const filtered = useMemo(() => {
-    if (!query.trim()) return matches;
-    const q = query.toLowerCase();
-    return matches.filter(
-      (m) =>
-        m.homeTeam.name.toLowerCase().includes(q) ||
-        m.awayTeam.name.toLowerCase().includes(q) ||
-        m.competition?.name?.toLowerCase().includes(q),
-    );
-  }, [matches, query]);
+    let out = matches;
+    if (competition !== "all") {
+      out = out.filter((m) => (m.competition?.name ?? "Other") === competition);
+    }
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      out = out.filter(
+        (m) =>
+          m.homeTeam.name.toLowerCase().includes(q) ||
+          m.awayTeam.name.toLowerCase().includes(q) ||
+          m.competition?.name?.toLowerCase().includes(q),
+      );
+    }
+    return out;
+  }, [matches, query, competition]);
 
   const groupedByDay = useMemo(() => {
     const groups = new Map<string, MatchSummary[]>();
@@ -72,6 +94,9 @@ function IndexPage() {
     }
     return Array.from(groups.entries());
   }, [filtered]);
+
+  const PAGE_SIZE = 24;
+  const getVisible = (day: string) => visiblePerDay[day] ?? PAGE_SIZE;
 
   const toggleTrack = async (m: MatchSummary) => {
     if (!user) return;
@@ -130,6 +155,33 @@ function IndexPage() {
         </div>
       </div>
 
+      {competitions.length > 0 && (
+        <div className="mb-6 -mx-1 flex gap-2 overflow-x-auto pb-2 px-1">
+          <Button
+            variant={competition === "all" ? "default" : "secondary"}
+            size="sm"
+            onClick={() => setCompetition("all")}
+            className="shrink-0 gap-1.5"
+          >
+            <Trophy className="h-3.5 w-3.5" />
+            All
+            <span className="font-mono text-[10px] opacity-70">{matches.length}</span>
+          </Button>
+          {competitions.map(([name, count]) => (
+            <Button
+              key={name}
+              variant={competition === name ? "default" : "secondary"}
+              size="sm"
+              onClick={() => setCompetition(name)}
+              className="shrink-0 gap-1.5"
+            >
+              {name}
+              <span className="font-mono text-[10px] opacity-70">{count}</span>
+            </Button>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="mb-6 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
@@ -142,27 +194,48 @@ function IndexPage() {
         <EmptyState />
       ) : (
         <div className="space-y-8">
-          {groupedByDay.map(([day, group]) => (
-            <section key={day}>
-              <div className="mb-3 flex items-center gap-3">
-                <h2 className="font-display text-xl font-bold">{day}</h2>
-                <div className="h-px flex-1 bg-border/60" />
-                <span className="font-mono text-xs text-muted-foreground">
-                  {group.length} match{group.length === 1 ? "" : "es"}
-                </span>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {group.map((m) => (
-                  <MatchCard
-                    key={m.id}
-                    match={m}
-                    isTracked={trackedIds.has(m.id)}
-                    onToggleTrack={() => toggleTrack(m)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+          {groupedByDay.map(([day, group]) => {
+            const visible = getVisible(day);
+            const shown = group.slice(0, visible);
+            const remaining = group.length - shown.length;
+            return (
+              <section key={day}>
+                <div className="mb-3 flex items-center gap-3">
+                  <h2 className="font-display text-xl font-bold">{day}</h2>
+                  <div className="h-px flex-1 bg-border/60" />
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {shown.length}/{group.length}
+                  </span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {shown.map((m) => (
+                    <MatchCard
+                      key={m.id}
+                      match={m}
+                      isTracked={trackedIds.has(m.id)}
+                      onToggleTrack={() => toggleTrack(m)}
+                    />
+                  ))}
+                </div>
+                {remaining > 0 && (
+                  <div className="mt-4 flex justify-center">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setVisiblePerDay((v) => ({
+                          ...v,
+                          [day]: visible + PAGE_SIZE,
+                        }))
+                      }
+                    >
+                      Show {Math.min(PAGE_SIZE, remaining)} more · {remaining} left
+                    </Button>
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
     </AppShell>
