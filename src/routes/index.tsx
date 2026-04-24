@@ -95,10 +95,10 @@ function IndexPage() {
     }
     const rows: { match: ValuePick; alternates: number }[] = [];
     for (const [, list] of byMatch) {
-      const sorted = [...list].sort((a, b) => b.edgePct - a.edgePct);
+      const sorted = [...list].sort((a, b) => b.modelProb - a.modelProb);
       rows.push({ match: sorted[0], alternates: sorted.length - 1 });
     }
-    rows.sort((a, b) => b.match.edgePct - a.match.edgePct);
+    rows.sort((a, b) => b.match.modelProb - a.match.modelProb);
     return rows;
   }, [picks]);
 
@@ -508,9 +508,12 @@ function PickListItem({ pick, alternates }: { pick: ValuePick; alternates: numbe
             {pick.decimalOdds.toFixed(2)}
           </span>
         </div>
-        <span className="font-mono text-[11px] font-bold tabular-nums text-primary">
-          +{pick.edgePct.toFixed(1)}% edge
-        </span>
+        <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums">
+          <span className="font-bold text-primary">
+            {(pick.modelProb * 100).toFixed(0)}% prob
+          </span>
+          <span className="text-muted-foreground">+{pick.edgePct.toFixed(1)}% edge</span>
+        </div>
       </div>
     </Link>
   );
