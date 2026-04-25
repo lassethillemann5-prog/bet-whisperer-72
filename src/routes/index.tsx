@@ -205,12 +205,30 @@ function IndexPage() {
     return out;
   }, [dayMatches, query, competition]);
 
-  const PAGE_SIZE = 24;
-  const shownMatches = filtered.slice(0, visible);
-  const remaining = filtered.length - shownMatches.length;
+  // Sort the full filtered list according to the active sort mode, then paginate.
+  const sortedFiltered = useMemo(() => {
+    const arr = [...filtered];
+    if (sortBy === "time") {
+      arr.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
+    } else {
+      // Popularity: rank by competition tier, then by kickoff time.
+      arr.sort((a, b) => {
+        const pa = competitionPopularity(a.competition?.name);
+        const pb = competitionPopularity(b.competition?.name);
+        if (pa !== pb) return pb - pa;
+        return new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime();
+      });
+    }
+    return arr;
+  }, [filtered, sortBy]);
 
-  // Group shown matches by competition name, preserving the order from `competitions`
-  // (which is sorted by match count desc).
+  const PAGE_SIZE = 24;
+  const shownMatches = sortedFiltered.slice(0, visible);
+  const remaining = sortedFiltered.length - shownMatches.length;
+
+  // Group shown matches by competition name. Group order depends on sort mode:
+  // - popularity: by tier rank (top leagues first)
+  // - time: by earliest kickoff in the group
   const groupedShown = useMemo(() => {
     const groups = new Map<string, MatchSummary[]>();
     for (const m of shownMatches) {
@@ -218,16 +236,22 @@ function IndexPage() {
       if (!groups.has(name)) groups.set(name, []);
       groups.get(name)!.push(m);
     }
-    // Sort matches inside each group by kickoff time ascending
     for (const arr of groups.values()) {
       arr.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
     }
-    // Order groups by descending match count, then alphabetically
     return Array.from(groups.entries()).sort((a, b) => {
+      if (sortBy === "time") {
+        const ea = Math.min(...a[1].map((m) => new Date(m.utcDate).getTime()));
+        const eb = Math.min(...b[1].map((m) => new Date(m.utcDate).getTime()));
+        return ea - eb;
+      }
+      const pa = competitionPopularity(a[0]);
+      const pb = competitionPopularity(b[0]);
+      if (pa !== pb) return pb - pa;
       if (b[1].length !== a[1].length) return b[1].length - a[1].length;
       return a[0].localeCompare(b[0]);
     });
-  }, [shownMatches]);
+  }, [shownMatches, sortBy]);
 
   const shiftDate = (delta: number) => {
     const idx = dateOptions.findIndex((d) => d.iso === selectedDate);
