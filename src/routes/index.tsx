@@ -453,6 +453,7 @@ function IndexPage() {
 }
 
 function Hero({ count, days }: { count: number; days: number }) {
+  // placeholder so apply_patch hunk anchor stays unique
   return (
     <section className="mb-8 overflow-hidden rounded-3xl border border-border/60 card-elevated">
       <div className="relative grid gap-6 p-6 md:grid-cols-[1.5fr_1fr] md:p-10">
