@@ -36,7 +36,7 @@ export const Route = createRootRoute({
         content:
           "Track football fixtures and get statistical + AI predictions for 1X2, Over/Under 1.5 & 2.5 goals, corners, shots and shots on target.",
       },
-      { property: "og:title", content: "Pitchcast — Football predictions" },
+      { property: "og:title", content: "Pitchcast — Football match predictions & tracker" },
       {
         property: "og:description",
         content:
@@ -44,6 +44,12 @@ export const Route = createRootRoute({
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "Pitchcast — Football match predictions & tracker" },
+      { name: "description", content: "Football prediction app for game outcomes, goals, and shots." },
+      { property: "og:description", content: "Football prediction app for game outcomes, goals, and shots." },
+      { name: "twitter:description", content: "Football prediction app for game outcomes, goals, and shots." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/dec91eda-5daa-47ce-b095-43223927b8e8/id-preview-801a0a6c--e02f00b5-c664-4815-8d21-933fa2ac8f3d.lovable.app-1777077931498.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/dec91eda-5daa-47ce-b095-43223927b8e8/id-preview-801a0a6c--e02f00b5-c664-4815-8d21-933fa2ac8f3d.lovable.app-1777077931498.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
