@@ -15,12 +15,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Flame,
-  Loader2,
   RefreshCw,
   Search,
   Sparkles,
   Trophy,
-  Trophy as TrophyIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -218,16 +216,22 @@ function IndexPage() {
           <TabsTrigger value="picks" className="gap-1.5">
             <Flame className="h-3.5 w-3.5" />
             Today's picks
-            {todaysPicks.length > 0 && (
+            {todayRows.length > 0 && (
               <span className="ml-1 rounded-md bg-primary/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
-                {todaysPicks.length}
+                {todayRows.length}
               </span>
             )}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="picks" className="mt-6">
-          <TodaysPicksPanel rows={todaysPicks} busy={picksBusy} />
+          <TodaysPicksPanel
+            rows={sortedTodayRows}
+            busy={todayBusy}
+            missing={todayMissing}
+            computed={todayComputed}
+            onRefresh={loadTodayPredictions}
+          />
         </TabsContent>
 
         <TabsContent value="fixtures" className="mt-6">
