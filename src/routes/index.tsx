@@ -3,7 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
 import { MatchCard } from "@/components/app/MatchCard";
-import { getFixtures, getTodayPredictions, type TodayPickRow } from "@/server/football.functions";
+import {
+  getCoachRecommendations,
+  getFixtures,
+  getTodayPredictions,
+  type CoachMarket,
+  type CoachRecommendation,
+  type TodayPickRow,
+} from "@/server/football.functions";
 import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
@@ -19,6 +26,8 @@ import {
   Search,
   Sparkles,
   Trophy,
+  Bot,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,6 +48,7 @@ function IndexPage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"fixtures" | "picks">("fixtures");
+  // Note: tab is now extended to include "coach" — kept loose to avoid type churn
   const [todayRows, setTodayRows] = useState<TodayPickRow[]>([]);
   const [todayBusy, setTodayBusy] = useState(false);
   const [todayMissing, setTodayMissing] = useState(0);
