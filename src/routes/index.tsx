@@ -117,7 +117,9 @@ function IndexPage() {
 
   const dateOptions = useMemo(() => {
     const counts = new Map<string, number>();
+    const now = Date.now();
     for (const m of matches) {
+      if (new Date(m.utcDate).getTime() <= now) continue;
       const k = isoDay(new Date(m.utcDate));
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
