@@ -473,7 +473,9 @@ function ResultsList({
             const oppGoals = homeIsTarget ? m.scoreAway : m.scoreHome;
             let result: "W" | "D" | "L" | "?" = "?";
             if (targetGoals != null && oppGoals != null) {
-              result = targetGoals > oppGoals ? "W" : targetGoals < oppGoals ? "D" === "D" && targetGoals === oppGoals ? "D" : "L" : "D";
+              if (targetGoals > oppGoals) result = "W";
+              else if (targetGoals < oppGoals) result = "L";
+              else result = "D";
             }
             const date = new Date(m.utcDate);
             return (
