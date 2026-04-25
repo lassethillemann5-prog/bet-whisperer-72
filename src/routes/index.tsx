@@ -29,6 +29,8 @@ import {
   Bot,
 } from "lucide-react";
 import { toast } from "sonner";
+import { LogBetDialog } from "@/components/app/LogBetDialog";
+import { tierLabel, unitsForProbability } from "@/lib/football/bankroll";
 
 export const Route = createFileRoute("/")({
   component: IndexPage,
