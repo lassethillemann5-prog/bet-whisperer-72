@@ -13,10 +13,12 @@ import {
   type PickOfTheDayResponse,
   type TodayPickRow,
 } from "@/server/football.functions";
+import { askCoachChat, type CoachChatMessage } from "@/server/coachChat.functions";
 import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Link } from "@tanstack/react-router";
@@ -32,6 +34,10 @@ import {
   Bot,
   Crown,
   Clock,
+  Send,
+  MessageSquare,
+  ListChecks,
+  User as UserIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
@@ -970,6 +976,200 @@ function isoDay(d: Date): string {
 }
 
 function CoachPanel() {
+  const [mode, setMode] = useState<"chat" | "picks">("chat");
+
+  return (
+    <div className="space-y-6">
+      <div className="inline-flex rounded-xl border border-border/60 bg-secondary/40 p-1">
+        <button
+          onClick={() => setMode("chat")}
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            mode === "chat"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          Chat
+        </button>
+        <button
+          onClick={() => setMode("picks")}
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            mode === "picks"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <ListChecks className="h-3.5 w-3.5" />
+          Quick picks
+        </button>
+      </div>
+      {mode === "chat" ? <CoachChatPanel /> : <CoachPicksPanel />}
+    </div>
+  );
+}
+
+function CoachChatPanel() {
+  const { user } = useAuth();
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [messages, setMessages] = useState<CoachChatMessage[]>([]);
+
+  const suggestions = [
+    "Give me 3 balanced bets for tonight",
+    "Anything safe in my tracked matches?",
+    "What's my best value pick today?",
+    "How is my bankroll doing?",
+  ];
+
+  const send = async (text: string) => {
+    if (!user || !text.trim() || busy) return;
+    const next: CoachChatMessage[] = [...messages, { role: "user", content: text.trim() }];
+    setMessages(next);
+    setInput("");
+    setBusy(true);
+    try {
+      const res = await askCoachChat({ data: { userId: user.id, messages: next } });
+      if (res.error) {
+        toast.error(res.error);
+        setMessages(next);
+      } else {
+        setMessages([...next, { role: "assistant", content: res.reply }]);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Coach chat failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/15 via-secondary/40 to-secondary/40 p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary">
+            <Bot className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+              Lovable AI · Coach chat
+            </div>
+            <h2 className="mt-1 font-display text-2xl font-bold leading-tight">
+              Talk to your AI betting coach
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ask anything about today's matches, your tracked games, pending bets or
+              bankroll. Coach is balanced — a mix of safer and value picks.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border/60 bg-card/60">
+        <div className="max-h-[480px] min-h-[260px] space-y-3 overflow-y-auto p-4">
+          {messages.length === 0 ? (
+            <div className="space-y-3 py-6 text-center">
+              <Bot className="mx-auto h-8 w-8 text-muted-foreground/60" />
+              <p className="text-sm text-muted-foreground">
+                Ask the coach for picks, bankroll advice or match insight.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {suggestions.map((s) => (
+                  <Button
+                    key={s}
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => send(s)}
+                    disabled={busy}
+                    className="text-xs"
+                  >
+                    {s}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            messages.map((m, i) => <ChatBubble key={i} message={m} />)
+          )}
+          {busy && (
+            <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Coach is thinking…
+            </div>
+          )}
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(input);
+          }}
+          className="flex items-end gap-2 border-t border-border/60 p-3"
+        >
+          <Textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send(input);
+              }
+            }}
+            placeholder="Ask the coach… (Shift+Enter for newline)"
+            rows={1}
+            className="min-h-[44px] resize-none"
+            disabled={busy}
+          />
+          <Button type="submit" disabled={busy || !input.trim()} size="icon" className="h-11 w-11 shrink-0">
+            <Send className="h-4 w-4" />
+          </Button>
+        </form>
+      </div>
+
+      {messages.length > 0 && (
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMessages([])}
+            disabled={busy}
+            className="text-xs text-muted-foreground"
+          >
+            Clear chat
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatBubble({ message }: { message: CoachChatMessage }) {
+  const isUser = message.role === "user";
+  return (
+    <div className={`flex gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
+      {!isUser && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+          <Bot className="h-4 w-4" />
+        </div>
+      )}
+      <div
+        className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+          isUser
+            ? "rounded-tr-sm bg-primary text-primary-foreground"
+            : "rounded-tl-sm bg-secondary/70 text-foreground"
+        }`}
+      >
+        {message.content}
+      </div>
+      {isUser && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
+          <UserIcon className="h-3.5 w-3.5" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CoachPicksPanel() {
   const [market, setMarket] = useState<CoachMarket>("any");
   const [minProb, setMinProb] = useState<number>(60);
   const [maxPicks, setMaxPicks] = useState<number>(5);
