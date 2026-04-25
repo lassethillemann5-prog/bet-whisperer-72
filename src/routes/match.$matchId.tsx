@@ -368,6 +368,149 @@ function Stat({ label, v }: { label: string; v: number | string }) {
   );
 }
 
+function HeadToHead({
+  data,
+  busy,
+  homeTeam,
+  awayTeam,
+}: {
+  data: H2HResponse | null;
+  busy: boolean;
+  homeTeam: MatchSummary["homeTeam"];
+  awayTeam: MatchSummary["awayTeam"];
+}) {
+  if (busy && !data) {
+    return (
+      <section className="mt-6 rounded-2xl border border-border/60 card-elevated p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <History className="h-4 w-4 text-primary" />
+          <h2 className="font-display text-lg font-bold">Head-to-head & recent results</h2>
+        </div>
+        <div className="h-32 animate-pulse rounded-xl bg-secondary/40" />
+      </section>
+    );
+  }
+  if (!data) return null;
+  const totalH2H = data.h2h.length;
+  return (
+    <section className="mt-6 rounded-2xl border border-border/60 card-elevated p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <History className="h-4 w-4 text-primary" />
+        <h2 className="font-display text-lg font-bold">Head-to-head & recent results</h2>
+      </div>
+
+      {/* H2H summary bar */}
+      {totalH2H > 0 ? (
+        <div className="mb-5">
+          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span className="truncate font-mono uppercase tracking-[0.15em]">{homeTeam.name}</span>
+            <span className="font-mono uppercase tracking-[0.15em]">Last {totalH2H} H2H</span>
+            <span className="truncate text-right font-mono uppercase tracking-[0.15em]">{awayTeam.name}</span>
+          </div>
+          <div className="flex h-3 overflow-hidden rounded-full bg-secondary">
+            <div
+              className="bg-primary"
+              style={{ width: `${(data.summary.homeWins / totalH2H) * 100}%` }}
+              title={`${homeTeam.name} wins`}
+            />
+            <div
+              className="bg-muted-foreground/40"
+              style={{ width: `${(data.summary.draws / totalH2H) * 100}%` }}
+              title="Draws"
+            />
+            <div
+              className="bg-destructive/70"
+              style={{ width: `${(data.summary.awayWins / totalH2H) * 100}%` }}
+              title={`${awayTeam.name} wins`}
+            />
+          </div>
+          <div className="mt-1 flex items-center justify-between font-mono text-[11px] tabular-nums">
+            <span className="text-primary">{data.summary.homeWins}W</span>
+            <span className="text-muted-foreground">{data.summary.draws}D</span>
+            <span className="text-destructive">{data.summary.awayWins}W</span>
+          </div>
+        </div>
+      ) : (
+        <p className="mb-5 text-sm text-muted-foreground">No prior head-to-head meetings on record.</p>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <ResultsList title="Head-to-head" matches={data.h2h} highlightTeamId={homeTeam.id} />
+        <div className="space-y-4">
+          <ResultsList title={`${homeTeam.name} · last 5`} matches={data.homeRecent} highlightTeamId={homeTeam.id} compact />
+          <ResultsList title={`${awayTeam.name} · last 5`} matches={data.awayRecent} highlightTeamId={awayTeam.id} compact />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ResultsList({
+  title,
+  matches,
+  highlightTeamId,
+  compact = false,
+}: {
+  title: string;
+  matches: H2HResponse["h2h"];
+  highlightTeamId: number;
+  compact?: boolean;
+}) {
+  return (
+    <div>
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+        {title}
+      </div>
+      {matches.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted-foreground">
+          No data
+        </div>
+      ) : (
+        <ul className={`space-y-1.5 ${compact ? "text-xs" : "text-sm"}`}>
+          {matches.map((m) => {
+            const homeIsTarget = m.homeTeam.id === highlightTeamId;
+            const targetGoals = homeIsTarget ? m.scoreHome : m.scoreAway;
+            const oppGoals = homeIsTarget ? m.scoreAway : m.scoreHome;
+            let result: "W" | "D" | "L" | "?" = "?";
+            if (targetGoals != null && oppGoals != null) {
+              result = targetGoals > oppGoals ? "W" : targetGoals < oppGoals ? "D" === "D" && targetGoals === oppGoals ? "D" : "L" : "D";
+            }
+            const date = new Date(m.utcDate);
+            return (
+              <li
+                key={m.id}
+                className="flex items-center gap-2 rounded-lg bg-secondary/40 px-2.5 py-1.5"
+              >
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded font-mono text-[10px] font-bold ${
+                    result === "W"
+                      ? "bg-primary/20 text-primary"
+                      : result === "D"
+                      ? "bg-muted-foreground/20 text-muted-foreground"
+                      : "bg-destructive/20 text-destructive"
+                  }`}
+                >
+                  {result}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  <span className={homeIsTarget ? "font-semibold" : ""}>{m.homeTeam.name}</span>
+                  <span className="mx-1.5 font-mono tabular-nums text-muted-foreground">
+                    {m.scoreHome ?? "-"}–{m.scoreAway ?? "-"}
+                  </span>
+                  <span className={!homeIsTarget ? "font-semibold" : ""}>{m.awayTeam.name}</span>
+                </span>
+                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                  {date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "2-digit" })}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function OddsSection({
   matchId,
   userId,
