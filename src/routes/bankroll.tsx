@@ -30,6 +30,7 @@ import {
   Settings as SettingsIcon,
   Trophy,
   Activity,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -53,6 +54,7 @@ import {
   type BetLogRow,
   type BetStatus,
 } from "@/lib/football/bankroll";
+import { autoSettleBets } from "@/server/autoSettle.functions";
 
 export const Route = createFileRoute("/bankroll")({
   component: BankrollPage,
@@ -65,6 +67,7 @@ function BankrollPage() {
   const [bets, setBets] = useState<BetLogRow[]>([]);
   const [busy, setBusy] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [settling, setSettling] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -95,6 +98,38 @@ function BankrollPage() {
     [bets, bankroll?.unit_size],
   );
 
+  const pendingCount = useMemo(
+    () => bets.filter((b) => b.status === "pending").length,
+    [bets],
+  );
+
+  const runAutoSettle = async () => {
+    if (!user) return;
+    setSettling(true);
+    try {
+      const res = await autoSettleBets({ data: { userId: user.id } });
+      if (res.errors.length > 0) {
+        toast.error(`Settled with issues: ${res.errors[0]}`);
+      }
+      const summary = `Settled ${res.settled}, voided ${res.voided}, ${res.stillPending} still pending`;
+      if (res.settled === 0 && res.voided === 0) {
+        toast.message("Nothing to settle yet", { description: summary });
+      } else {
+        toast.success(summary, {
+          description:
+            res.bankrollDelta !== 0
+              ? `Bankroll ${res.bankrollDelta >= 0 ? "+" : ""}${res.bankrollDelta.toFixed(2)}`
+              : undefined,
+        });
+      }
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Auto-settle failed");
+    } finally {
+      setSettling(false);
+    }
+  };
+
   const series = useMemo(
     () => bankrollGrowthSeries(bets, Number(bankroll?.starting_bankroll ?? 0)),
     [bets, bankroll?.starting_bankroll],
@@ -109,10 +144,28 @@ function BankrollPage() {
           <Wallet className="h-5 w-5 text-primary" />
           <h1 className="font-display text-3xl font-bold">Bankroll</h1>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowSettings((v) => !v)}>
-          <SettingsIcon className="h-4 w-4" />
-          {showSettings ? "Hide settings" : "Settings"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {bankroll && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={runAutoSettle}
+              disabled={settling || pendingCount === 0}
+              className="gap-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${settling ? "animate-spin" : ""}`} />
+              {settling
+                ? "Checking results…"
+                : pendingCount > 0
+                  ? `Auto-settle (${pendingCount})`
+                  : "Auto-settle"}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setShowSettings((v) => !v)}>
+            <SettingsIcon className="h-4 w-4" />
+            {showSettings ? "Hide settings" : "Settings"}
+          </Button>
+        </div>
       </div>
 
       {(showSettings || !bankroll) && (
