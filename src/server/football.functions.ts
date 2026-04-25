@@ -347,10 +347,12 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
       const all = await fetchUpcomingMatches(2);
       const today = new Date();
       const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const nowMs = Date.now();
       const fixtures = all.filter((m) => {
         const d = new Date(m.utcDate);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        return key === todayKey;
+        // Only today's fixtures whose kickoff is still in the future.
+        return key === todayKey && d.getTime() > nowMs;
       });
 
       if (fixtures.length === 0) {
