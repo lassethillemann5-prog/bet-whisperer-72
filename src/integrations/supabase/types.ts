@@ -110,6 +110,27 @@ export type Database = {
         }
         Relationships: []
       }
+      fixtures_cache: {
+        Row: {
+          cache_key: string
+          created_at: string
+          payload: Json
+          updated_at: string
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string
+          payload: Json
+          updated_at?: string
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string
+          payload?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       match_odds: {
         Row: {
           bookmaker: string | null
@@ -191,6 +212,27 @@ export type Database = {
           id?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      team_form_cache: {
+        Row: {
+          created_at: string
+          payload: Json
+          team_id: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          payload: Json
+          team_id: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          payload?: Json
+          team_id?: number
+          updated_at?: string
         }
         Relationships: []
       }
