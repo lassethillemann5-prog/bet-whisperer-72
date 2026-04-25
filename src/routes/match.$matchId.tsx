@@ -2,13 +2,13 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
-import { getMatchWithPredictions } from "@/server/football.functions";
+import { getMatchH2H, getMatchWithPredictions, type H2HResponse } from "@/server/football.functions";
 import type { MatchPredictions, MatchSummary, MarketPrediction } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
 import { listOddsForMatch, upsertOdds, deleteOdds, type OddsRow } from "@/lib/football/odds";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Sparkles, Star, StarOff, TrendingUp, Trash2, Plus, Download, Loader2 } from "lucide-react";
+import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp, Trash2, Plus, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchOddsForMatch } from "@/server/oddsApi.functions";
 
@@ -25,6 +25,8 @@ function MatchPage() {
   const [error, setError] = useState<string | null>(null);
   const [isTracked, setIsTracked] = useState(false);
   const [odds, setOdds] = useState<OddsRow[]>([]);
+  const [h2h, setH2h] = useState<H2HResponse | null>(null);
+  const [h2hBusy, setH2hBusy] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -45,6 +47,14 @@ function MatchPage() {
         setData(res);
         setIsTracked(tracked.some((t) => t.match_id === Number(matchId)));
         setOdds(oddsRows);
+        // Lazy-fetch H2H once we know team ids
+        setH2hBusy(true);
+        getMatchH2H({
+          data: { homeTeamId: res.match.homeTeam.id, awayTeamId: res.match.awayTeam.id },
+        })
+          .then((r) => !cancelled && setH2h(r))
+          .catch(() => {})
+          .finally(() => !cancelled && setH2hBusy(false));
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load match"))
       .finally(() => !cancelled && setBusy(false));
@@ -116,6 +126,12 @@ function MatchPage() {
             onChange={async () => setOdds(await listOddsForMatch(user.id, data.match.id))}
           />
           <FormSummary match={data.match} preds={data.predictions} />
+          <HeadToHead
+            data={h2h}
+            busy={h2hBusy}
+            homeTeam={data.match.homeTeam}
+            awayTeam={data.match.awayTeam}
+          />
         </>
       )}
     </AppShell>
