@@ -56,6 +56,13 @@ function AccumulatorPage() {
   const [bankroll, setBankroll] = useState<BankrollSettings | null>(null);
   const [units, setUnits] = useState("1");
   const [saving, setSaving] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Tick every 30s so matches that have started disappear automatically.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -85,14 +92,20 @@ function AccumulatorPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
+    const upcoming = rows.filter((r) => new Date(r.match.utcDate).getTime() > now);
+    if (!q) return upcoming;
+    return upcoming.filter(
       (r) =>
         r.match.homeTeam.name.toLowerCase().includes(q) ||
         r.match.awayTeam.name.toLowerCase().includes(q) ||
         r.match.competition?.name?.toLowerCase().includes(q),
     );
-  }, [rows, query]);
+  }, [rows, query, now]);
+
+  // Auto-remove legs for matches that have kicked off.
+  useEffect(() => {
+    setLegs((prev) => prev.filter((l) => new Date(l.utcDate).getTime() > now));
+  }, [now]);
 
   const selectionsForRow = (r: TodayPickRow): Selection[] => {
     const out: Selection[] = [];
