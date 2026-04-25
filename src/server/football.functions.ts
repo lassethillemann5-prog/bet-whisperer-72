@@ -377,6 +377,52 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
         );
       }
 
+      // 2b. If we don't have enough cached predictions to give the AI a real
+      // shortlist, lazily compute a batch right here (bounded so we don't
+      // hammer the football API).
+      const minCacheTarget = Math.max(maxPicks * 3, 12);
+      if (cacheMap.size < minCacheTarget) {
+        const computeBudget = Math.min(12, fixtures.length - cacheMap.size);
+        const toCompute = fixtures.filter((f) => !cacheMap.has(f.id)).slice(0, computeBudget);
+        await Promise.allSettled(
+          toCompute.map(async (f) => {
+            try {
+              const [homeForm, awayForm] = await Promise.all([
+                fetchTeamForm(f.homeTeam.id),
+                fetchTeamForm(f.awayTeam.id),
+              ]);
+              const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
+                homeForm,
+                awayForm,
+              );
+              const predictions: MatchPredictions = {
+                matchId: f.id,
+                generatedAt: new Date().toISOString(),
+                homeForm,
+                awayForm,
+                expectedGoalsHome,
+                expectedGoalsAway,
+                markets,
+                commentary: "",
+              };
+              const payload = { match: f, predictions };
+              try {
+                await supabase.from("predictions_cache").upsert({
+                  match_id: f.id,
+                  payload: payload as unknown,
+                  updated_at: new Date().toISOString(),
+                });
+              } catch (e) {
+                console.warn("coach cache write skipped", e);
+              }
+              cacheMap.set(f.id, payload);
+            } catch (e) {
+              console.warn("coach predict failed for", f.id, e);
+            }
+          }),
+        );
+      }
+
       // 3. Build candidate selections from cached fixtures
       type Candidate = {
         matchId: number;
