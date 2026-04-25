@@ -13,10 +13,12 @@ import {
   type PickOfTheDayResponse,
   type TodayPickRow,
 } from "@/server/football.functions";
+import { askCoachChat, type CoachChatMessage } from "@/server/coachChat.functions";
 import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Link } from "@tanstack/react-router";
@@ -32,6 +34,10 @@ import {
   Bot,
   Crown,
   Clock,
+  Send,
+  MessageSquare,
+  ListChecks,
+  User as UserIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
