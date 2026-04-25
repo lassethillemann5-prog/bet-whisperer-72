@@ -483,7 +483,7 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
           recommendations: [],
           summary:
             consideredCount === 0
-              ? "No predictions are cached for today's fixtures yet. Open the Today's Picks tab and click 'Compute more' to generate them, then come back."
+              ? "Couldn't load predictions for today's fixtures right now. Try again in a moment."
               : `Looked at ${consideredCount} matches with predictions but none cleared the ${minProbability}% confidence floor for ${marketLabel(market)}. Lower the threshold or pick a different market.`,
           considered: consideredCount,
           error: null,
