@@ -1,5 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
-import { fetchMatch, fetchTeamForm, fetchUpcomingMatches } from "./footballData.server";
+import {
+  fetchHeadToHead,
+  fetchMatch,
+  fetchRecentMatches,
+  fetchTeamForm,
+  fetchUpcomingMatches,
+} from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
