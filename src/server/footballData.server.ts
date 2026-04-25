@@ -170,6 +170,36 @@ export async function fetchMatch(id: number): Promise<MatchSummary> {
   return toMatchSummary(match);
 }
 
+/** Fetch recent finished matches for a team (raw fixtures, most recent first). */
+export async function fetchRecentMatches(teamId: number, limit = 5): Promise<MatchSummary[]> {
+  try {
+    const data = await fdFetch<{ response: ApiSportsFixture[] }>(
+      `/fixtures?team=${teamId}&last=${limit}&status=FT`,
+    );
+    return (data.response ?? []).map(toMatchSummary).reverse();
+  } catch (e) {
+    console.error("fetchRecentMatches failed", teamId, e);
+    return [];
+  }
+}
+
+/** Head-to-head finished fixtures between two teams (most recent first). */
+export async function fetchHeadToHead(
+  homeId: number,
+  awayId: number,
+  limit = 5,
+): Promise<MatchSummary[]> {
+  try {
+    const data = await fdFetch<{ response: ApiSportsFixture[] }>(
+      `/fixtures/headtohead?h2h=${homeId}-${awayId}&last=${limit}&status=FT`,
+    );
+    return (data.response ?? []).map(toMatchSummary).reverse();
+  } catch (e) {
+    console.error("fetchHeadToHead failed", homeId, awayId, e);
+    return [];
+  }
+}
+
 /** Fetch recent finished matches for a team and compute simple form. */
 export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm | null> {
   // Cache key ignores `limit` because callers always use the default; if a
