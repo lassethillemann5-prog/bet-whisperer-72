@@ -5,12 +5,10 @@ import { AppShell } from "@/components/app/AppShell";
 import { getMatchH2H, getMatchWithPredictions, type H2HResponse } from "@/server/football.functions";
 import type { MatchPredictions, MatchSummary, MarketPrediction } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
-import { listOddsForMatch, upsertOdds, deleteOdds, type OddsRow } from "@/lib/football/odds";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp, Trash2, Plus, Download, Loader2 } from "lucide-react";
+import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
-import { fetchOddsForMatch } from "@/server/oddsApi.functions";
+import { LogBetDialog } from "@/components/app/LogBetDialog";
 
 export const Route = createFileRoute("/match/$matchId")({
   component: MatchPage,
@@ -24,7 +22,6 @@ function MatchPage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isTracked, setIsTracked] = useState(false);
-  const [odds, setOdds] = useState<OddsRow[]>([]);
   const [h2h, setH2h] = useState<H2HResponse | null>(null);
   const [h2hBusy, setH2hBusy] = useState(false);
 
@@ -40,13 +37,11 @@ function MatchPage() {
     Promise.all([
       getMatchWithPredictions({ data: { matchId: Number(matchId) } }),
       listTracked(user.id),
-      listOddsForMatch(user.id, Number(matchId)),
     ])
-      .then(([res, tracked, oddsRows]) => {
+      .then(([res, tracked]) => {
         if (cancelled) return;
         setData(res);
-        setIsTracked(tracked.some((t) => t.match_id === Number(matchId)));
-        setOdds(oddsRows);
+        setIsTracked(tracked.some((t: { match_id: number }) => t.match_id === Number(matchId)));
         // Lazy-fetch H2H once we know team ids
         setH2hBusy(true);
         getMatchH2H({
@@ -113,18 +108,7 @@ function MatchPage() {
           />
           <Commentary text={data.predictions.commentary} />
           <MarketsGrid markets={data.predictions.markets} />
-          <OddsSection
-            matchId={data.match.id}
-            userId={user.id}
-            markets={data.predictions.markets}
-            odds={odds}
-            matchMeta={{
-              homeTeam: data.match.homeTeam.name,
-              awayTeam: data.match.awayTeam.name,
-              utcDate: data.match.utcDate,
-            }}
-            onChange={async () => setOdds(await listOddsForMatch(user.id, data.match.id))}
-          />
+          <FairOddsSection match={data.match} markets={data.predictions.markets} />
           <FormSummary match={data.match} preds={data.predictions} />
           <HeadToHead
             data={h2h}
@@ -513,229 +497,83 @@ function ResultsList({
   );
 }
 
-function OddsSection({
-  matchId,
-  userId,
+function FairOddsSection({
+  match,
   markets,
-  odds,
-  matchMeta,
-  onChange,
 }: {
-  matchId: number;
-  userId: string;
+  match: MatchSummary;
   markets: MarketPrediction[];
-  odds: OddsRow[];
-  matchMeta: { homeTeam: string; awayTeam: string; utcDate: string };
-  onChange: () => Promise<void> | void;
 }) {
-  const [marketKey, setMarketKey] = useState<string>(markets[0]?.market ?? "1x2");
-  const selected = markets.find((m) => m.market === marketKey) ?? markets[0];
-  const [selection, setSelection] = useState<string>(
-    selected ? Object.keys(selected.probabilities)[0] : "",
-  );
-  const [oddsValue, setOddsValue] = useState<string>("");
-  const [bookmaker, setBookmaker] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const [fetching, setFetching] = useState(false);
-
-  // Reset selection when market changes
-  useEffect(() => {
-    const m = markets.find((x) => x.market === marketKey);
-    if (m) setSelection(Object.keys(m.probabilities)[0] ?? "");
-  }, [marketKey, markets]);
-
-  const submit = async () => {
-    const num = parseFloat(oddsValue.replace(",", "."));
-    if (!selected || !selection || !(num > 1)) {
-      toast.error("Enter decimal odds greater than 1");
-      return;
-    }
-    setSaving(true);
-    try {
-      await upsertOdds({
-        userId,
-        matchId,
-        market: selected.market,
-        selection,
-        decimalOdds: num,
-        bookmaker: bookmaker.trim() || null,
-        line: selected.line ?? null,
-      });
-      setOddsValue("");
-      await onChange();
-      toast.success("Odds saved");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async (id: string) => {
-    try {
-      await deleteOdds(userId, id);
-      await onChange();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to delete");
-    }
-  };
-
-  const fetchFromApi = async () => {
-    setFetching(true);
-    try {
-      const res = await fetchOddsForMatch({
-        data: {
-          userId,
-          matchId,
-          homeTeam: matchMeta.homeTeam,
-          awayTeam: matchMeta.awayTeam,
-          utcDate: matchMeta.utcDate,
-        },
-      });
-      if (!res.ok) {
-        toast.error(res.error);
-      } else {
-        toast.success(`Fetched ${res.inserted} odds`);
-        await onChange();
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to fetch odds");
-    } finally {
-      setFetching(false);
-    }
-  };
-
   return (
     <section className="mt-6 rounded-2xl border border-border/60 card-elevated p-5">
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-1 flex items-center gap-2">
         <TrendingUp className="h-4 w-4 text-primary" />
-        <h2 className="font-display text-lg font-bold">Bookmaker odds</h2>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={fetchFromApi}
-          disabled={fetching}
-          className="ml-auto gap-1.5"
-        >
-          {fetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Download className="h-3.5 w-3.5" />
-          )}
-          {fetching ? "Fetching…" : "Fetch from API"}
-        </Button>
+        <h2 className="font-display text-lg font-bold">Fair odds</h2>
       </div>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Model-derived fair odds (1 / probability). Take a price above fair to bet with positive expected value.
+      </p>
 
-      <div className="grid gap-2 md:grid-cols-[1.2fr_1.4fr_0.9fr_1fr_auto]">
-        <select
-          value={marketKey}
-          onChange={(e) => setMarketKey(e.target.value)}
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-        >
-          {markets.map((m) => (
-            <option key={m.market} value={m.market}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={selection}
-          onChange={(e) => setSelection(e.target.value)}
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-        >
-          {selected &&
-            Object.entries(selected.probabilities).map(([k, v]) => (
-              <option key={k} value={k}>
-                {k} · model {v.toFixed(1)}%
-              </option>
-            ))}
-        </select>
-        <Input
-          type="number"
-          inputMode="decimal"
-          step="0.01"
-          min="1.01"
-          placeholder="Odds (e.g. 2.10)"
-          value={oddsValue}
-          onChange={(e) => setOddsValue(e.target.value)}
-        />
-        <Input
-          placeholder="Bookmaker (optional)"
-          value={bookmaker}
-          onChange={(e) => setBookmaker(e.target.value)}
-        />
-        <Button onClick={submit} disabled={saving} className="gap-1.5">
-          <Plus className="h-4 w-4" /> Save
-        </Button>
+      <div className="space-y-3">
+        {markets.map((m) => (
+          <FairOddsMarket key={m.market} match={match} m={m} />
+        ))}
       </div>
-
-      {odds.length > 0 && (
-        <div className="mt-5 space-y-2">
-          {odds.map((o) => {
-            const market = markets.find((m) => m.market === o.market);
-            const modelPct = market?.probabilities[o.selection];
-            const decimalOdds = Number(o.decimal_odds);
-            const impliedPct = (1 / decimalOdds) * 100;
-            const edge =
-              typeof modelPct === "number" ? modelPct - impliedPct : null;
-            const ev =
-              typeof modelPct === "number"
-                ? (modelPct / 100) * decimalOdds * 100 - 100
-                : null;
-            return (
-              <div
-                key={o.id}
-                className="grid grid-cols-1 gap-2 rounded-xl border border-border/60 bg-secondary/30 px-4 py-3 text-sm md:grid-cols-[1.5fr_1fr_1fr_1fr_auto] md:items-center"
-              >
-                <div>
-                  <div className="font-display font-semibold">{market?.label ?? o.market}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {o.selection}
-                    {o.bookmaker ? ` · ${o.bookmaker}` : ""}
-                  </div>
-                </div>
-                <Stat label="Odds" v={decimalOdds.toFixed(2)} />
-                <Stat
-                  label="Model"
-                  v={typeof modelPct === "number" ? `${modelPct.toFixed(1)}%` : "—"}
-                />
-                <div className="rounded-lg bg-background/60 py-2 text-center">
-                  <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
-                    Edge / EV
-                  </div>
-                  <div
-                    className={`font-display text-sm font-bold tabular-nums ${
-                      edge !== null && edge > 0
-                        ? "text-primary"
-                        : edge !== null
-                        ? "text-destructive"
-                        : ""
-                    }`}
-                  >
-                    {edge !== null
-                      ? `${edge > 0 ? "+" : ""}${edge.toFixed(1)}%`
-                      : "—"}
-                    {ev !== null && (
-                      <span className="ml-1 font-mono text-[10px] opacity-70">
-                        ({ev > 0 ? "+" : ""}
-                        {ev.toFixed(1)})
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => remove(o.id)}
-                  aria-label="Remove odds"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </section>
   );
 }
+
+function FairOddsMarket({ match, m }: { match: MatchSummary; m: MarketPrediction }) {
+  const entries = Object.entries(m.probabilities);
+  return (
+    <div className="rounded-xl border border-border/50 bg-secondary/30 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="font-display text-sm font-semibold">{m.label}</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          pick · <span className="text-primary">{m.pick}</span>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {entries.map(([selection, probPct]) => {
+          const prob01 = Math.max(0.001, Math.min(0.999, probPct / 100));
+          const fair = 1 / prob01;
+          const isPick = selection === m.pick || probPct === Math.max(...entries.map(([, v]) => v));
+          return (
+            <div
+              key={selection}
+              className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 ${
+                isPick ? "bg-primary/10 ring-1 ring-primary/40" : "bg-background/40"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{selection}</div>
+                <div className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {probPct.toFixed(1)}% · fair {fair.toFixed(2)}
+                </div>
+              </div>
+              <LogBetDialog
+                seed={{
+                  matchId: match.id,
+                  homeTeam: match.homeTeam.name,
+                  awayTeam: match.awayTeam.name,
+                  competition: match.competition?.name ?? null,
+                  utcDate: match.utcDate,
+                  market: m.market,
+                  selection,
+                  decimalOdds: fair,
+                  modelProbability: prob01,
+                }}
+                trigger={
+                  <Button size="sm" variant={isPick ? "default" : "secondary"} className="shrink-0">
+                    Log bet
+                  </Button>
+                }
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+

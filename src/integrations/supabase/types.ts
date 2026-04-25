@@ -131,45 +131,6 @@ export type Database = {
         }
         Relationships: []
       }
-      match_odds: {
-        Row: {
-          bookmaker: string | null
-          created_at: string
-          decimal_odds: number
-          id: string
-          line: number | null
-          market: string
-          match_id: number
-          selection: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          bookmaker?: string | null
-          created_at?: string
-          decimal_odds: number
-          id?: string
-          line?: number | null
-          market: string
-          match_id: number
-          selection: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          bookmaker?: string | null
-          created_at?: string
-          decimal_odds?: number
-          id?: string
-          line?: number | null
-          market?: string
-          match_id?: number
-          selection?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       predictions_cache: {
         Row: {
           created_at: string
