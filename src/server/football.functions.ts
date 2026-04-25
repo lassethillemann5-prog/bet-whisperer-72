@@ -97,3 +97,198 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
 
     return payload;
   });
+
+export interface TodayPickRow {
+  match: MatchSummary;
+  // Each market entry: selection -> probability (0-100)
+  oneXTwo: { home: number; draw: number; away: number; pick: string } | null;
+  ou25: { over: number; under: number; pick: string } | null;
+  btts: { yes: number; no: number; pick: string } | null;
+  best: { market: string; selection: string; label: string; probability: number } | null;
+  cached: boolean;
+}
+
+function extractMarkets(predictions: MatchPredictions): {
+  oneXTwo: TodayPickRow["oneXTwo"];
+  ou25: TodayPickRow["ou25"];
+  btts: TodayPickRow["btts"];
+  best: TodayPickRow["best"];
+} {
+  const m1x2 = predictions.markets.find((m) => m.market === "1x2");
+  const mou25 = predictions.markets.find((m) => m.market === "ou_25");
+  const mbtts = predictions.markets.find((m) => m.market === "btts");
+
+  const oneXTwo = m1x2
+    ? {
+        home: m1x2.probabilities["1"] ?? 0,
+        draw: m1x2.probabilities["X"] ?? 0,
+        away: m1x2.probabilities["2"] ?? 0,
+        pick: m1x2.pick,
+      }
+    : null;
+  const ou25 = mou25
+    ? {
+        over: mou25.probabilities["Over"] ?? 0,
+        under: mou25.probabilities["Under"] ?? 0,
+        pick: mou25.pick,
+      }
+    : null;
+  const btts = mbtts
+    ? {
+        yes: mbtts.probabilities["Yes"] ?? 0,
+        no: mbtts.probabilities["No"] ?? 0,
+        pick: mbtts.pick,
+      }
+    : null;
+
+  // Best: highest single-selection probability across these 3 markets
+  const candidates: { market: string; selection: string; label: string; probability: number }[] = [];
+  if (oneXTwo) {
+    candidates.push(
+      { market: "1x2", selection: "1", label: "Home", probability: oneXTwo.home },
+      { market: "1x2", selection: "X", label: "Draw", probability: oneXTwo.draw },
+      { market: "1x2", selection: "2", label: "Away", probability: oneXTwo.away },
+    );
+  }
+  if (ou25) {
+    candidates.push(
+      { market: "ou_25", selection: "Over", label: "Over 2.5", probability: ou25.over },
+      { market: "ou_25", selection: "Under", label: "Under 2.5", probability: ou25.under },
+    );
+  }
+  if (btts) {
+    candidates.push(
+      { market: "btts", selection: "Yes", label: "BTTS Yes", probability: btts.yes },
+      { market: "btts", selection: "No", label: "BTTS No", probability: btts.no },
+    );
+  }
+  candidates.sort((a, b) => b.probability - a.probability);
+  const best = candidates[0] ?? null;
+
+  return { oneXTwo, ou25, btts, best };
+}
+
+/**
+ * Returns predictions for every fixture happening "today" (UTC day).
+ * Uses cached predictions when available; computes up to `computeBudget`
+ * missing ones on-demand to avoid hammering the API.
+ */
+export const getTodayPredictions = createServerFn({ method: "POST" })
+  .inputValidator((input: { computeBudget?: number } | undefined) => input ?? {})
+  .handler(async ({ data }) => {
+    try {
+      const computeBudget = data.computeBudget ?? 6;
+      const supabase = adminClient();
+
+      // 1. Today's fixtures
+      const all = await fetchUpcomingMatches(2); // today + tomorrow window for tz safety
+      const today = new Date();
+      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const fixtures = all.filter((m) => {
+        const d = new Date(m.utcDate);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return key === todayKey;
+      });
+      fixtures.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
+
+      if (fixtures.length === 0) {
+        return { rows: [] as TodayPickRow[], computed: 0, missing: 0, error: null as string | null };
+      }
+
+      // 2. Read cache for all of them in one query
+      const ids = fixtures.map((f) => f.id);
+      const { data: cachedRows } = await supabase
+        .from("predictions_cache")
+        .select("match_id, payload, updated_at")
+        .in("match_id", ids);
+
+      const cacheMap = new Map<number, { payload: { match: MatchSummary; predictions: MatchPredictions }; fresh: boolean }>();
+      for (const row of cachedRows ?? []) {
+        const fresh = row.updated_at
+          ? Date.now() - new Date(row.updated_at).getTime() < CACHE_TTL_MS
+          : false;
+        cacheMap.set(row.match_id as number, {
+          payload: row.payload as unknown as { match: MatchSummary; predictions: MatchPredictions },
+          fresh,
+        });
+      }
+
+      // 3. Identify fixtures missing fresh predictions
+      const missing = fixtures.filter((f) => {
+        const c = cacheMap.get(f.id);
+        return !c || !c.fresh;
+      });
+
+      // 4. Compute up to computeBudget fresh predictions in parallel
+      const toCompute = missing.slice(0, computeBudget);
+      const computed = await Promise.allSettled(
+        toCompute.map(async (f) => {
+          try {
+            const [homeForm, awayForm] = await Promise.all([
+              fetchTeamForm(f.homeTeam.id),
+              fetchTeamForm(f.awayTeam.id),
+            ]);
+            const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
+              homeForm,
+              awayForm,
+            );
+            const predictions: MatchPredictions = {
+              matchId: f.id,
+              generatedAt: new Date().toISOString(),
+              homeForm,
+              awayForm,
+              expectedGoalsHome,
+              expectedGoalsAway,
+              markets,
+              commentary: "",
+            };
+            const payload = { match: f, predictions };
+            // Best-effort cache write
+            try {
+              await supabase.from("predictions_cache").upsert({
+                match_id: f.id,
+                payload: payload as unknown,
+                updated_at: new Date().toISOString(),
+              });
+            } catch (e) {
+              console.warn("today cache write skipped", e);
+            }
+            cacheMap.set(f.id, { payload, fresh: true });
+            return f.id;
+          } catch (e) {
+            console.warn("today predict failed for", f.id, e);
+            return null;
+          }
+        }),
+      );
+      const computedCount = computed.filter((r) => r.status === "fulfilled" && r.value).length;
+
+      // 5. Build rows
+      const rows: TodayPickRow[] = fixtures.map((f) => {
+        const cached = cacheMap.get(f.id);
+        if (!cached) {
+          return {
+            match: f,
+            oneXTwo: null,
+            ou25: null,
+            btts: null,
+            best: null,
+            cached: false,
+          };
+        }
+        const ext = extractMarkets(cached.payload.predictions);
+        return {
+          match: f,
+          ...ext,
+          cached: true,
+        };
+      });
+
+      const stillMissing = rows.filter((r) => !r.cached).length;
+      return { rows, computed: computedCount, missing: stillMissing, error: null };
+    } catch (e) {
+      console.error("getTodayPredictions failed", e);
+      const msg = e instanceof Error ? e.message : "Failed to load today's predictions";
+      return { rows: [] as TodayPickRow[], computed: 0, missing: 0, error: msg };
+    }
+  });
