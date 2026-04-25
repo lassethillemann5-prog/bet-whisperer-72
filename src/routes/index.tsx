@@ -6,9 +6,11 @@ import { MatchCard } from "@/components/app/MatchCard";
 import {
   getCoachRecommendations,
   getFixtures,
+  getPickOfTheDay,
   getTodayPredictions,
   type CoachMarket,
   type CoachRecommendation,
+  type PickOfTheDayResponse,
   type TodayPickRow,
 } from "@/server/football.functions";
 import type { MatchSummary } from "@/lib/football/types";
@@ -28,6 +30,8 @@ import {
   Sparkles,
   Trophy,
   Bot,
+  Crown,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
@@ -55,6 +59,8 @@ function IndexPage() {
   const [todayMissing, setTodayMissing] = useState(0);
   const [todayComputed, setTodayComputed] = useState(0);
   const [todayLoaded, setTodayLoaded] = useState(false);
+  const [pickOfDay, setPickOfDay] = useState<PickOfTheDayResponse["pick"]>(null);
+  const [pickOfDayBusy, setPickOfDayBusy] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -74,6 +80,18 @@ function IndexPage() {
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => !cancelled && setBusy(false));
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // Load Pick of the Day independently — uses cached predictions only, fast.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setPickOfDayBusy(true);
+    getPickOfTheDay()
+      .then((res) => !cancelled && setPickOfDay(res.pick))
+      .catch(() => {})
+      .finally(() => !cancelled && setPickOfDayBusy(false));
     return () => { cancelled = true; };
   }, [user]);
 
