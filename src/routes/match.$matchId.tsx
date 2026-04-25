@@ -5,12 +5,10 @@ import { AppShell } from "@/components/app/AppShell";
 import { getMatchH2H, getMatchWithPredictions, type H2HResponse } from "@/server/football.functions";
 import type { MatchPredictions, MatchSummary, MarketPrediction } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
-import { listOddsForMatch, upsertOdds, deleteOdds, type OddsRow } from "@/lib/football/odds";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp, Trash2, Plus, Download, Loader2 } from "lucide-react";
+import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
-import { fetchOddsForMatch } from "@/server/oddsApi.functions";
+import { LogBetDialog } from "@/components/app/LogBetDialog";
 
 export const Route = createFileRoute("/match/$matchId")({
   component: MatchPage,
@@ -24,7 +22,6 @@ function MatchPage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isTracked, setIsTracked] = useState(false);
-  const [odds, setOdds] = useState<OddsRow[]>([]);
   const [h2h, setH2h] = useState<H2HResponse | null>(null);
   const [h2hBusy, setH2hBusy] = useState(false);
 
@@ -40,13 +37,11 @@ function MatchPage() {
     Promise.all([
       getMatchWithPredictions({ data: { matchId: Number(matchId) } }),
       listTracked(user.id),
-      listOddsForMatch(user.id, Number(matchId)),
     ])
-      .then(([res, tracked, oddsRows]) => {
+      .then(([res, tracked]) => {
         if (cancelled) return;
         setData(res);
-        setIsTracked(tracked.some((t) => t.match_id === Number(matchId)));
-        setOdds(oddsRows);
+        setIsTracked(tracked.some((t: { match_id: number }) => t.match_id === Number(matchId)));
         // Lazy-fetch H2H once we know team ids
         setH2hBusy(true);
         getMatchH2H({
@@ -113,18 +108,7 @@ function MatchPage() {
           />
           <Commentary text={data.predictions.commentary} />
           <MarketsGrid markets={data.predictions.markets} />
-          <OddsSection
-            matchId={data.match.id}
-            userId={user.id}
-            markets={data.predictions.markets}
-            odds={odds}
-            matchMeta={{
-              homeTeam: data.match.homeTeam.name,
-              awayTeam: data.match.awayTeam.name,
-              utcDate: data.match.utcDate,
-            }}
-            onChange={async () => setOdds(await listOddsForMatch(user.id, data.match.id))}
-          />
+          <FairOddsSection match={data.match} markets={data.predictions.markets} />
           <FormSummary match={data.match} preds={data.predictions} />
           <HeadToHead
             data={h2h}
