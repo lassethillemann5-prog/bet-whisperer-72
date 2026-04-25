@@ -292,3 +292,305 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
       return { rows: [] as TodayPickRow[], computed: 0, missing: 0, error: msg };
     }
   });
+
+// ---------------------------------------------------------------------------
+// AI Coach: recommend bets for a chosen market based on model probabilities
+// ---------------------------------------------------------------------------
+
+export type CoachMarket = "any" | "1x2" | "ou_25" | "btts";
+
+export interface CoachRecommendation {
+  matchId: number;
+  homeTeam: string;
+  awayTeam: string;
+  competition: string | null;
+  kickoff: string;
+  market: string;
+  selection: string;
+  probability: number;
+  confidence: "high" | "medium" | "low";
+  rationale: string;
+}
+
+export interface CoachResponse {
+  recommendations: CoachRecommendation[];
+  summary: string;
+  considered: number;
+  error: string | null;
+}
+
+const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
+function marketLabel(m: CoachMarket): string {
+  switch (m) {
+    case "1x2": return "Match Result (1X2)";
+    case "ou_25": return "Over/Under 2.5 Goals";
+    case "btts": return "Both Teams To Score";
+    default: return "Any market";
+  }
+}
+
+export const getCoachRecommendations = createServerFn({ method: "POST" })
+  .inputValidator(
+    (input: { market?: CoachMarket; minProbability?: number; maxPicks?: number } | undefined) =>
+      input ?? {},
+  )
+  .handler(async ({ data }): Promise<CoachResponse> => {
+    const market: CoachMarket = data.market ?? "any";
+    const minProbability = Math.max(0, Math.min(95, data.minProbability ?? 55));
+    const maxPicks = Math.max(1, Math.min(10, data.maxPicks ?? 5));
+
+    try {
+      const supabase = adminClient();
+
+      // 1. Today's fixtures (UTC day)
+      const all = await fetchUpcomingMatches(2);
+      const today = new Date();
+      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const fixtures = all.filter((m) => {
+        const d = new Date(m.utcDate);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return key === todayKey;
+      });
+
+      if (fixtures.length === 0) {
+        return {
+          recommendations: [],
+          summary: "No fixtures today. Check back tomorrow for fresh picks.",
+          considered: 0,
+          error: null,
+        };
+      }
+
+      // 2. Pull whatever cached predictions we already have (no on-demand compute)
+      const ids = fixtures.map((f) => f.id);
+      const { data: cachedRows } = await supabase
+        .from("predictions_cache")
+        .select("match_id, payload")
+        .in("match_id", ids);
+
+      const cacheMap = new Map<number, { match: MatchSummary; predictions: MatchPredictions }>();
+      for (const row of cachedRows ?? []) {
+        cacheMap.set(
+          row.match_id as number,
+          row.payload as unknown as { match: MatchSummary; predictions: MatchPredictions },
+        );
+      }
+
+      // 3. Build candidate selections from cached fixtures
+      type Candidate = {
+        matchId: number;
+        homeTeam: string;
+        awayTeam: string;
+        competition: string | null;
+        kickoff: string;
+        market: string;
+        marketLabel: string;
+        selection: string;
+        selectionLabel: string;
+        probability: number;
+      };
+
+      const candidates: Candidate[] = [];
+      for (const f of fixtures) {
+        const cached = cacheMap.get(f.id);
+        if (!cached) continue;
+        const { oneXTwo, ou25, btts } = extractMarkets(cached.predictions);
+        const base = {
+          matchId: f.id,
+          homeTeam: f.homeTeam.name,
+          awayTeam: f.awayTeam.name,
+          competition: f.competition?.name ?? null,
+          kickoff: f.utcDate,
+        };
+        if ((market === "any" || market === "1x2") && oneXTwo) {
+          candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "1", selectionLabel: `${f.homeTeam.shortName ?? f.homeTeam.name} to win`, probability: oneXTwo.home });
+          candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "X", selectionLabel: "Draw", probability: oneXTwo.draw });
+          candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "2", selectionLabel: `${f.awayTeam.shortName ?? f.awayTeam.name} to win`, probability: oneXTwo.away });
+        }
+        if ((market === "any" || market === "ou_25") && ou25) {
+          candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Over", selectionLabel: "Over 2.5 goals", probability: ou25.over });
+          candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Under", selectionLabel: "Under 2.5 goals", probability: ou25.under });
+        }
+        if ((market === "any" || market === "btts") && btts) {
+          candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
+          candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
+        }
+      }
+
+      // 4. Filter by min probability, sort, take top N (one per match wins out)
+      const filtered = candidates.filter((c) => c.probability >= minProbability);
+      filtered.sort((a, b) => b.probability - a.probability);
+      const seenMatch = new Set<number>();
+      const top: Candidate[] = [];
+      for (const c of filtered) {
+        if (seenMatch.has(c.matchId)) continue;
+        seenMatch.add(c.matchId);
+        top.push(c);
+        if (top.length >= maxPicks) break;
+      }
+
+      const consideredCount = cacheMap.size;
+
+      if (top.length === 0) {
+        return {
+          recommendations: [],
+          summary:
+            consideredCount === 0
+              ? "No predictions are cached for today's fixtures yet. Open the Today's Picks tab and click 'Compute more' to generate them, then come back."
+              : `Looked at ${consideredCount} matches with predictions but none cleared the ${minProbability}% confidence floor for ${marketLabel(market)}. Lower the threshold or pick a different market.`,
+          considered: consideredCount,
+          error: null,
+        };
+      }
+
+      // 5. Ask the AI to write a rationale per pick + a short overall summary
+      const apiKey = process.env.LOVABLE_API_KEY;
+      let aiSummary = "";
+      const rationales = new Map<string, { rationale: string; confidence: "high" | "medium" | "low" }>();
+
+      if (apiKey) {
+        try {
+          const payload = {
+            market: marketLabel(market),
+            minProbability,
+            picks: top.map((c) => ({
+              id: `${c.matchId}-${c.market}-${c.selection}`,
+              match: `${c.homeTeam} vs ${c.awayTeam}`,
+              competition: c.competition,
+              kickoff: c.kickoff,
+              marketLabel: c.marketLabel,
+              selection: c.selectionLabel,
+              modelProbability: Math.round(c.probability),
+            })),
+          };
+
+          const res = await fetch(GATEWAY, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-3-flash-preview",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are a sharp football betting analyst. You receive a list of candidate bets pre-filtered by a statistical model with their model probability (0-100). For each pick write ONE concise sentence (max 25 words) explaining why the model rates it. Then write a 1-2 sentence overall summary highlighting your favourite. Never invent stats — only reason from the probability and market context. No disclaimers, no markdown.",
+                },
+                {
+                  role: "user",
+                  content: `Today's candidate bets:\n${JSON.stringify(payload, null, 2)}`,
+                },
+              ],
+              tools: [
+                {
+                  type: "function",
+                  function: {
+                    name: "submit_recommendations",
+                    description: "Return per-pick rationales and an overall summary.",
+                    parameters: {
+                      type: "object",
+                      properties: {
+                        picks: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              id: { type: "string" },
+                              rationale: { type: "string" },
+                              confidence: { type: "string", enum: ["high", "medium", "low"] },
+                            },
+                            required: ["id", "rationale", "confidence"],
+                            additionalProperties: false,
+                          },
+                        },
+                        summary: { type: "string" },
+                      },
+                      required: ["picks", "summary"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+              ],
+              tool_choice: { type: "function", function: { name: "submit_recommendations" } },
+            }),
+          });
+
+          if (res.ok) {
+            const json = (await res.json()) as {
+              choices?: {
+                message?: {
+                  tool_calls?: { function?: { arguments?: string } }[];
+                  content?: string;
+                };
+              }[];
+            };
+            const argStr = json.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+            if (argStr) {
+              try {
+                const parsed = JSON.parse(argStr) as {
+                  picks?: { id: string; rationale: string; confidence: "high" | "medium" | "low" }[];
+                  summary?: string;
+                };
+                aiSummary = parsed.summary ?? "";
+                for (const p of parsed.picks ?? []) {
+                  rationales.set(p.id, { rationale: p.rationale, confidence: p.confidence });
+                }
+              } catch (e) {
+                console.warn("coach: failed to parse tool args", e);
+              }
+            }
+          } else if (res.status === 429) {
+            aiSummary = "AI rationales rate-limited — showing model picks only.";
+          } else if (res.status === 402) {
+            aiSummary = "AI rationales unavailable (workspace credits exhausted) — showing model picks only.";
+          } else {
+            console.error("coach AI error", res.status);
+          }
+        } catch (e) {
+          console.error("coach AI failed", e);
+        }
+      }
+
+      const recommendations: CoachRecommendation[] = top.map((c) => {
+        const id = `${c.matchId}-${c.market}-${c.selection}`;
+        const r = rationales.get(id);
+        const fallbackConfidence: "high" | "medium" | "low" =
+          c.probability >= 75 ? "high" : c.probability >= 60 ? "medium" : "low";
+        return {
+          matchId: c.matchId,
+          homeTeam: c.homeTeam,
+          awayTeam: c.awayTeam,
+          competition: c.competition,
+          kickoff: c.kickoff,
+          market: c.marketLabel,
+          selection: c.selectionLabel,
+          probability: c.probability,
+          confidence: r?.confidence ?? fallbackConfidence,
+          rationale:
+            r?.rationale ??
+            `Model gives this ${Math.round(c.probability)}% — among the strongest signals on today's slate.`,
+        };
+      });
+
+      if (!aiSummary) {
+        const top1 = recommendations[0];
+        aiSummary = top1
+          ? `Top conviction: ${top1.selection} in ${top1.homeTeam} vs ${top1.awayTeam} at ${Math.round(top1.probability)}% model probability.`
+          : "Model picks ready.";
+      }
+
+      return {
+        recommendations,
+        summary: aiSummary,
+        considered: consideredCount,
+        error: null,
+      };
+    } catch (e) {
+      console.error("getCoachRecommendations failed", e);
+      const msg = e instanceof Error ? e.message : "Failed to generate recommendations";
+      return { recommendations: [], summary: "", considered: 0, error: msg };
+    }
+  });
