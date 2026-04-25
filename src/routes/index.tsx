@@ -117,7 +117,9 @@ function IndexPage() {
 
   const dateOptions = useMemo(() => {
     const counts = new Map<string, number>();
+    const now = Date.now();
     for (const m of matches) {
+      if (new Date(m.utcDate).getTime() <= now) continue;
       const k = isoDay(new Date(m.utcDate));
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
@@ -139,10 +141,15 @@ function IndexPage() {
     return arr;
   }, [matches]);
 
-  const dayMatches = useMemo(
-    () => matches.filter((m) => isoDay(new Date(m.utcDate)) === selectedDate),
-    [matches, selectedDate],
-  );
+  const dayMatches = useMemo(() => {
+    const now = Date.now();
+    return matches.filter((m) => {
+      if (isoDay(new Date(m.utcDate)) !== selectedDate) return false;
+      // Hide matches whose kickoff has already passed (any day).
+      if (new Date(m.utcDate).getTime() <= now) return false;
+      return true;
+    });
+  }, [matches, selectedDate]);
 
   const competitions = useMemo(() => {
     const counts = new Map<string, number>();
