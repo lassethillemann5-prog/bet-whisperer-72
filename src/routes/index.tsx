@@ -1017,14 +1017,18 @@ function CoachPickCard({ rec, rank }: { rec: CoachRecommendation; rank: number }
       : rec.confidence === "medium"
         ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
         : "border-border/60 bg-secondary/50 text-muted-foreground";
+  const prob01 = rec.probability / 100;
+  const recUnits = unitsForProbability(prob01);
+  const tier = tierLabel(prob01);
 
   return (
-    <Link
-      to="/match/$matchId"
-      params={{ matchId: String(rec.matchId) }}
-      className="block rounded-2xl border border-border/60 bg-card/60 p-4 transition hover:border-primary/60 hover:bg-primary/[0.04]"
-    >
-      <div className="flex items-start gap-3">
+    <div className="rounded-2xl border border-border/60 bg-card/60 p-4 transition hover:border-primary/60">
+      <Link
+        to="/match/$matchId"
+        params={{ matchId: String(rec.matchId) }}
+        className="block"
+      >
+        <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 font-display text-sm font-bold text-primary">
           #{rank}
         </div>
@@ -1054,6 +1058,9 @@ function CoachPickCard({ rec, rank }: { rec: CoachRecommendation; rank: number }
             >
               {rec.confidence} confidence
             </span>
+            <span className="rounded-md border border-border/60 bg-secondary/60 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-foreground">
+              Stake · {recUnits === 0 ? tier.label : `${recUnits} u`}
+            </span>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-foreground/90">{rec.rationale}</p>
         </div>
@@ -1065,7 +1072,24 @@ function CoachPickCard({ rec, rank }: { rec: CoachRecommendation; rank: number }
             {rec.probability.toFixed(0)}%
           </div>
         </div>
-      </div>
-    </Link>
+        </div>
+      </Link>
+      {recUnits > 0 && (
+        <div className="mt-3 flex justify-end" onClick={(e) => e.stopPropagation()}>
+          <LogBetDialog
+            seed={{
+              matchId: rec.matchId,
+              homeTeam: rec.homeTeam,
+              awayTeam: rec.awayTeam,
+              competition: rec.competition,
+              utcDate: rec.kickoff,
+              market: rec.market,
+              selection: rec.selection,
+              modelProbability: prob01,
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
