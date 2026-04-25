@@ -140,7 +140,7 @@ function IndexPage() {
 
   useEffect(() => {
     setVisible(24);
-  }, [competition, query, selectedDate]);
+  }, [competition, query, selectedDate, sortBy]);
 
   const dateOptions = useMemo(() => {
     const counts = new Map<string, number>();
