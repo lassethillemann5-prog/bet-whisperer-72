@@ -379,6 +379,31 @@ function IndexPage() {
           />
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-md border border-border/60 bg-secondary/40 p-1">
+            <ArrowUpDown className="ml-1 h-3.5 w-3.5 text-muted-foreground" />
+            <button
+              type="button"
+              onClick={() => setSortBy("popularity")}
+              className={`rounded px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.15em] transition ${
+                sortBy === "popularity"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Popularity
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortBy("time")}
+              className={`rounded px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.15em] transition ${
+                sortBy === "time"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Time
+            </button>
+          </div>
           <Button variant="secondary" size="icon" onClick={() => shiftDate(-1)} aria-label="Previous day">
             <ChevronLeft className="h-4 w-4" />
           </Button>
