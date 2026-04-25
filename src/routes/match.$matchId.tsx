@@ -497,3 +497,83 @@ function ResultsList({
   );
 }
 
+function FairOddsSection({
+  match,
+  markets,
+}: {
+  match: MatchSummary;
+  markets: MarketPrediction[];
+}) {
+  return (
+    <section className="mt-6 rounded-2xl border border-border/60 card-elevated p-5">
+      <div className="mb-1 flex items-center gap-2">
+        <TrendingUp className="h-4 w-4 text-primary" />
+        <h2 className="font-display text-lg font-bold">Fair odds</h2>
+      </div>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Model-derived fair odds (1 / probability). Take a price above fair to bet with positive expected value.
+      </p>
+
+      <div className="space-y-3">
+        {markets.map((m) => (
+          <FairOddsMarket key={m.market} match={match} m={m} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FairOddsMarket({ match, m }: { match: MatchSummary; m: MarketPrediction }) {
+  const entries = Object.entries(m.probabilities);
+  return (
+    <div className="rounded-xl border border-border/50 bg-secondary/30 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="font-display text-sm font-semibold">{m.label}</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          pick · <span className="text-primary">{m.pick}</span>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {entries.map(([selection, probPct]) => {
+          const prob01 = Math.max(0.001, Math.min(0.999, probPct / 100));
+          const fair = 1 / prob01;
+          const isPick = selection === m.pick || probPct === Math.max(...entries.map(([, v]) => v));
+          return (
+            <div
+              key={selection}
+              className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 ${
+                isPick ? "bg-primary/10 ring-1 ring-primary/40" : "bg-background/40"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{selection}</div>
+                <div className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {probPct.toFixed(1)}% · fair {fair.toFixed(2)}
+                </div>
+              </div>
+              <LogBetDialog
+                seed={{
+                  matchId: match.id,
+                  homeTeam: match.homeTeam.name,
+                  awayTeam: match.awayTeam.name,
+                  competition: match.competition?.name ?? null,
+                  utcDate: match.utcDate,
+                  market: m.market,
+                  selection,
+                  decimalOdds: fair,
+                  modelProbability: prob01,
+                }}
+                trigger={
+                  <Button size="sm" variant={isPick ? "default" : "secondary"} className="shrink-0">
+                    Log bet
+                  </Button>
+                }
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
