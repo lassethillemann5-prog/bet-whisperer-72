@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ValueRouteImport } from './routes/value'
 import { Route as TrackedRouteImport } from './routes/tracked'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as BankrollRouteImport } from './routes/bankroll'
@@ -17,11 +16,6 @@ import { Route as AccumulatorRouteImport } from './routes/accumulator'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchMatchIdRouteImport } from './routes/match.$matchId'
 
-const ValueRoute = ValueRouteImport.update({
-  id: '/value',
-  path: '/value',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TrackedRoute = TrackedRouteImport.update({
   id: '/tracked',
   path: '/tracked',
@@ -59,7 +53,6 @@ export interface FileRoutesByFullPath {
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
-  '/value': typeof ValueRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
 export interface FileRoutesByTo {
@@ -68,7 +61,6 @@ export interface FileRoutesByTo {
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
-  '/value': typeof ValueRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
 export interface FileRoutesById {
@@ -78,7 +70,6 @@ export interface FileRoutesById {
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
-  '/value': typeof ValueRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
 export interface FileRouteTypes {
@@ -89,7 +80,6 @@ export interface FileRouteTypes {
     | '/bankroll'
     | '/login'
     | '/tracked'
-    | '/value'
     | '/match/$matchId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -98,7 +88,6 @@ export interface FileRouteTypes {
     | '/bankroll'
     | '/login'
     | '/tracked'
-    | '/value'
     | '/match/$matchId'
   id:
     | '__root__'
@@ -107,7 +96,6 @@ export interface FileRouteTypes {
     | '/bankroll'
     | '/login'
     | '/tracked'
-    | '/value'
     | '/match/$matchId'
   fileRoutesById: FileRoutesById
 }
@@ -117,19 +105,11 @@ export interface RootRouteChildren {
   BankrollRoute: typeof BankrollRoute
   LoginRoute: typeof LoginRoute
   TrackedRoute: typeof TrackedRoute
-  ValueRoute: typeof ValueRoute
   MatchMatchIdRoute: typeof MatchMatchIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/value': {
-      id: '/value'
-      path: '/value'
-      fullPath: '/value'
-      preLoaderRoute: typeof ValueRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/tracked': {
       id: '/tracked'
       path: '/tracked'
@@ -181,7 +161,6 @@ const rootRouteChildren: RootRouteChildren = {
   BankrollRoute: BankrollRoute,
   LoginRoute: LoginRoute,
   TrackedRoute: TrackedRoute,
-  ValueRoute: ValueRoute,
   MatchMatchIdRoute: MatchMatchIdRoute,
 }
 export const routeTree = rootRouteImport
