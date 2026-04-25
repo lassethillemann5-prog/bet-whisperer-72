@@ -27,7 +27,6 @@ import {
   Sparkles,
   Trophy,
   Bot,
-  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
