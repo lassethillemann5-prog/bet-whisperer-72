@@ -1,8 +1,20 @@
 import type { MatchSummary, TeamForm } from "@/lib/football/types";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Provider: API-SPORTS Football v3 (https://www.api-football.com/documentation-v3)
 // Header: x-apisports-key — Pro keys are sent the same way as free keys.
 const BASE = "https://v3.football.api-sports.io";
+
+// Cache TTLs (kept short enough to stay fresh, long enough to slash API usage)
+const FIXTURES_TTL_MS = 1000 * 60 * 30; // 30 minutes per date
+const TEAM_FORM_TTL_MS = 1000 * 60 * 60 * 24; // 24h per team
+
+function cacheClient(): SupabaseClient | null {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 function getKey(): string {
   // Stored under FOOTBALL_DATA_API_KEY for legacy reasons; value is the
@@ -78,11 +90,55 @@ async function fdFetch<T>(path: string): Promise<T> {
   return json;
 }
 
+/** Read a cached payload if it's still within TTL. Best-effort, never throws. */
+async function readCache<T>(table: string, keyCol: string, keyVal: string | number, ttlMs: number): Promise<T | null> {
+  const sb = cacheClient();
+  if (!sb) return null;
+  try {
+    const { data } = await sb
+      .from(table)
+      .select("payload, updated_at")
+      .eq(keyCol, keyVal)
+      .maybeSingle();
+    if (!data?.payload || !data.updated_at) return null;
+    if (Date.now() - new Date(data.updated_at).getTime() > ttlMs) return null;
+    return data.payload as T;
+  } catch (e) {
+    console.warn(`cache read failed (${table})`, e);
+    return null;
+  }
+}
+
+async function writeCache(table: string, row: Record<string, unknown>): Promise<void> {
+  const sb = cacheClient();
+  if (!sb) return;
+  try {
+    await sb.from(table).upsert({ ...row, updated_at: new Date().toISOString() });
+  } catch (e) {
+    console.warn(`cache write failed (${table})`, e);
+  }
+}
+
+async function fetchFixturesForDate(date: string): Promise<MatchSummary[]> {
+  const cached = await readCache<MatchSummary[]>("fixtures_cache", "cache_key", `date:${date}`, FIXTURES_TTL_MS);
+  if (cached) return cached;
+
+  try {
+    const data = await fdFetch<{ response: ApiSportsFixture[] }>(`/fixtures?date=${date}`);
+    const matches = (data.response ?? []).map(toMatchSummary);
+    await writeCache("fixtures_cache", { cache_key: `date:${date}`, payload: matches as unknown });
+    return matches;
+  } catch (e) {
+    console.error("fixtures day failed", date, e);
+    return [];
+  }
+}
+
 /** Fetch upcoming matches (default: today through next 7 days). */
 export async function fetchUpcomingMatches(daysAhead = 7): Promise<MatchSummary[]> {
-  // API-SPORTS requires `season` when using from/to. Fetching by `date` works
-  // without it, so we iterate one day at a time (cheap: tiny payloads, runs in
-  // parallel) and concat the results.
+  // We fetch one day at a time (each call is small and cacheable per-date).
+  // With the 30-min fixtures cache, a typical day uses ~daysAhead requests
+  // total per cache window, regardless of how many users hit the page.
   const today = new Date();
   const dates: string[] = [];
   for (let i = 0; i < daysAhead; i++) {
@@ -91,32 +147,20 @@ export async function fetchUpcomingMatches(daysAhead = 7): Promise<MatchSummary[
     dates.push(d.toISOString().slice(0, 10));
   }
 
-  const results = await Promise.all(
-    dates.map(async (date) => {
-      try {
-        const data = await fdFetch<{ response: ApiSportsFixture[] }>(
-          `/fixtures?date=${date}`,
-        );
-        return data.response ?? [];
-      } catch (e) {
-        console.error("fixtures day failed", date, e);
-        return [] as ApiSportsFixture[];
-      }
-    }),
-  );
+  const results = await Promise.all(dates.map(fetchFixturesForDate));
 
   // Flatten + de-duplicate by fixture id (defensive)
   const seen = new Set<number>();
-  const merged: ApiSportsFixture[] = [];
+  const merged: MatchSummary[] = [];
   for (const day of results) {
     for (const f of day) {
-      if (!seen.has(f.fixture.id)) {
-        seen.add(f.fixture.id);
+      if (!seen.has(f.id)) {
+        seen.add(f.id);
         merged.push(f);
       }
     }
   }
-  return merged.map(toMatchSummary);
+  return merged;
 }
 
 export async function fetchMatch(id: number): Promise<MatchSummary> {
@@ -128,6 +172,12 @@ export async function fetchMatch(id: number): Promise<MatchSummary> {
 
 /** Fetch recent finished matches for a team and compute simple form. */
 export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm | null> {
+  // Cache key ignores `limit` because callers always use the default; if a
+  // caller passes a different limit, we still cache by team id and accept the
+  // approximation in exchange for far fewer API hits.
+  const cached = await readCache<TeamForm>("team_form_cache", "team_id", teamId, TEAM_FORM_TTL_MS);
+  if (cached) return cached;
+
   try {
     const data = await fdFetch<{ response: ApiSportsFixture[] }>(
       `/fixtures?team=${teamId}&last=${limit}&status=FT`,
@@ -155,7 +205,7 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       else { draws++; r = "D"; }
       last5.push(r);
     }
-    return {
+    const form: TeamForm = {
       played,
       wins,
       draws,
@@ -164,6 +214,8 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       goalsAgainst,
       last5: last5.slice(-5),
     };
+    await writeCache("team_form_cache", { team_id: teamId, payload: form as unknown });
+    return form;
   } catch (e) {
     console.error("fetchTeamForm failed", teamId, e);
     return null;
