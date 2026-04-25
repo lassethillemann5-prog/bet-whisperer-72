@@ -840,3 +840,382 @@ export const getPickOfTheDay = createServerFn({ method: "GET" }).handler(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Accumulator builder — let the model pick N legs from today's slate
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AccumulatorLeg {
+  matchId: number;
+  homeTeam: string;
+  awayTeam: string;
+  competition: string | null;
+  kickoff: string;
+  market: string;        // "1x2" | "ou_25" | "btts"
+  marketLabel: string;
+  selection: string;     // "1" | "X" | "2" | "Over" | "Under" | "Yes" | "No"
+  selectionLabel: string;
+  probability: number;   // 0..100
+  fairOdds: number;      // 1 / (probability/100)
+  rationale: string;
+}
+
+export interface AccumulatorResponse {
+  legs: AccumulatorLeg[];
+  combinedProbability: number; // 0..1
+  combinedFairOdds: number;
+  summary: string;
+  considered: number;
+  error: string | null;
+}
+
+export const getAccumulatorBuilder = createServerFn({ method: "POST" })
+  .inputValidator(
+    (input: {
+      legs?: number;            // 2..5
+      minProbability?: number;  // per-leg floor, 0..95
+      market?: CoachMarket;     // "any" | "1x2" | "ou_25" | "btts"
+    } | undefined) => input ?? {},
+  )
+  .handler(async ({ data }): Promise<AccumulatorResponse> => {
+    const targetLegs = Math.max(2, Math.min(5, data.legs ?? 3));
+    const minProbability = Math.max(0, Math.min(95, data.minProbability ?? 60));
+    const market: CoachMarket = data.market ?? "any";
+
+    try {
+      const supabase = adminClient();
+
+      // Today's upcoming fixtures only
+      const all = await fetchUpcomingMatches(2);
+      const today = new Date();
+      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const nowMs = Date.now();
+      const fixtures = all.filter((m) => {
+        const d = new Date(m.utcDate);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return key === todayKey && d.getTime() > nowMs;
+      });
+
+      if (fixtures.length === 0) {
+        return {
+          legs: [],
+          combinedProbability: 0,
+          combinedFairOdds: 0,
+          summary: "No upcoming fixtures left today. Try again tomorrow.",
+          considered: 0,
+          error: null,
+        };
+      }
+
+      // Pull cached predictions; lazily compute a small batch if cache is thin.
+      const ids = fixtures.map((f) => f.id);
+      const { data: cachedRows } = await supabase
+        .from("predictions_cache")
+        .select("match_id, payload")
+        .in("match_id", ids);
+
+      const cacheMap = new Map<number, { match: MatchSummary; predictions: MatchPredictions }>();
+      for (const row of cachedRows ?? []) {
+        cacheMap.set(
+          row.match_id as number,
+          row.payload as unknown as { match: MatchSummary; predictions: MatchPredictions },
+        );
+      }
+
+      const minCacheTarget = Math.max(targetLegs * 4, 12);
+      if (cacheMap.size < minCacheTarget) {
+        const computeBudget = Math.min(12, fixtures.length - cacheMap.size);
+        const toCompute = fixtures.filter((f) => !cacheMap.has(f.id)).slice(0, computeBudget);
+        await Promise.allSettled(
+          toCompute.map(async (f) => {
+            try {
+              const [homeForm, awayForm] = await Promise.all([
+                fetchTeamForm(f.homeTeam.id),
+                fetchTeamForm(f.awayTeam.id),
+              ]);
+              const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
+                homeForm,
+                awayForm,
+              );
+              const predictions: MatchPredictions = {
+                matchId: f.id,
+                generatedAt: new Date().toISOString(),
+                homeForm,
+                awayForm,
+                expectedGoalsHome,
+                expectedGoalsAway,
+                markets,
+                commentary: "",
+              };
+              const payload = { match: f, predictions };
+              try {
+                await supabase.from("predictions_cache").upsert({
+                  match_id: f.id,
+                  payload: payload as unknown,
+                  updated_at: new Date().toISOString(),
+                });
+              } catch (e) {
+                console.warn("acca cache write skipped", e);
+              }
+              cacheMap.set(f.id, payload);
+            } catch (e) {
+              console.warn("acca predict failed for", f.id, e);
+            }
+          }),
+        );
+      }
+
+      // Build candidates (one selection at a time, multiple per match allowed
+      // initially — we'll deduplicate per match before selection).
+      type Cand = {
+        matchId: number;
+        homeTeam: string;
+        awayTeam: string;
+        competition: string | null;
+        kickoff: string;
+        market: string;
+        marketLabel: string;
+        selection: string;
+        selectionLabel: string;
+        probability: number;
+      };
+
+      const candidates: Cand[] = [];
+      for (const f of fixtures) {
+        const cached = cacheMap.get(f.id);
+        if (!cached) continue;
+        const { oneXTwo, ou25, btts } = extractMarkets(cached.predictions);
+        const base = {
+          matchId: f.id,
+          homeTeam: f.homeTeam.name,
+          awayTeam: f.awayTeam.name,
+          competition: f.competition?.name ?? null,
+          kickoff: f.utcDate,
+        };
+        if ((market === "any" || market === "1x2") && oneXTwo) {
+          candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "1", selectionLabel: `${f.homeTeam.shortName ?? f.homeTeam.name} to win`, probability: oneXTwo.home });
+          candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "X", selectionLabel: "Draw", probability: oneXTwo.draw });
+          candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "2", selectionLabel: `${f.awayTeam.shortName ?? f.awayTeam.name} to win`, probability: oneXTwo.away });
+        }
+        if ((market === "any" || market === "ou_25") && ou25) {
+          candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Over", selectionLabel: "Over 2.5 goals", probability: ou25.over });
+          candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Under", selectionLabel: "Under 2.5 goals", probability: ou25.under });
+        }
+        if ((market === "any" || market === "btts") && btts) {
+          candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
+          candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
+        }
+      }
+
+      // Filter by probability floor, keep best per (match,market) so we don't
+      // double-count both sides of the same market.
+      const filtered = candidates.filter((c) => c.probability >= minProbability);
+      filtered.sort((a, b) => b.probability - a.probability);
+      const seenMatchMarket = new Set<string>();
+      const shortlist: Cand[] = [];
+      for (const c of filtered) {
+        const key = `${c.matchId}-${c.market}`;
+        if (seenMatchMarket.has(key)) continue;
+        seenMatchMarket.add(key);
+        shortlist.push(c);
+        if (shortlist.length >= 25) break;
+      }
+
+      const consideredCount = cacheMap.size;
+      if (shortlist.length < targetLegs) {
+        return {
+          legs: [],
+          combinedProbability: 0,
+          combinedFairOdds: 0,
+          summary:
+            consideredCount === 0
+              ? "Couldn't load predictions for today's fixtures right now. Try again in a moment."
+              : `Only ${shortlist.length} candidate(s) cleared the ${minProbability}% floor across ${consideredCount} matches with predictions. Lower the threshold or fewer legs.`,
+          considered: consideredCount,
+          error: null,
+        };
+      }
+
+      // Ask the AI to pick the best N legs (one per match) and write rationales.
+      const apiKey = process.env.LOVABLE_API_KEY;
+      let chosenIds: string[] = [];
+      const rationales = new Map<string, string>();
+      let aiSummary = "";
+
+      if (apiKey) {
+        try {
+          const payload = {
+            instructions: {
+              targetLegs,
+              minProbability,
+              marketFilter: marketLabel(market),
+              rule: "Pick the best legs to combine into a single accumulator. Use only one leg per match. Prefer high probability AND diversification across leagues/markets to reduce correlation.",
+            },
+            candidates: shortlist.map((c) => ({
+              id: `${c.matchId}-${c.market}-${c.selection}`,
+              match: `${c.homeTeam} vs ${c.awayTeam}`,
+              competition: c.competition,
+              kickoff: c.kickoff,
+              marketLabel: c.marketLabel,
+              selection: c.selectionLabel,
+              modelProbability: Math.round(c.probability),
+            })),
+          };
+
+          const res = await fetch(GATEWAY, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-3-flash-preview",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are a sharp football betting analyst building accumulators. Pick exactly the requested number of legs from the candidates, one leg per match, balancing probability and diversification across leagues/markets. For each chosen leg write ONE concise sentence (max 22 words) explaining why. Then write a 1-2 sentence overall accumulator summary. Never invent stats. No markdown, no disclaimers.",
+                },
+                {
+                  role: "user",
+                  content: `Build me a ${targetLegs}-leg accumulator from these candidates:\n${JSON.stringify(payload, null, 2)}`,
+                },
+              ],
+              tools: [
+                {
+                  type: "function",
+                  function: {
+                    name: "submit_accumulator",
+                    description: "Return the chosen accumulator legs and a summary.",
+                    parameters: {
+                      type: "object",
+                      properties: {
+                        legs: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              id: { type: "string" },
+                              rationale: { type: "string" },
+                            },
+                            required: ["id", "rationale"],
+                            additionalProperties: false,
+                          },
+                        },
+                        summary: { type: "string" },
+                      },
+                      required: ["legs", "summary"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+              ],
+              tool_choice: { type: "function", function: { name: "submit_accumulator" } },
+            }),
+          });
+
+          if (res.ok) {
+            const json = (await res.json()) as {
+              choices?: { message?: { tool_calls?: { function?: { arguments?: string } }[] } }[];
+            };
+            const argStr = json.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+            if (argStr) {
+              try {
+                const parsed = JSON.parse(argStr) as {
+                  legs?: { id: string; rationale: string }[];
+                  summary?: string;
+                };
+                aiSummary = parsed.summary ?? "";
+                for (const l of parsed.legs ?? []) {
+                  rationales.set(l.id, l.rationale);
+                  chosenIds.push(l.id);
+                }
+              } catch (e) {
+                console.warn("acca: failed to parse tool args", e);
+              }
+            }
+          } else if (res.status === 429) {
+            aiSummary = "AI rate-limited — falling back to top model picks.";
+          } else if (res.status === 402) {
+            aiSummary = "AI credits exhausted — falling back to top model picks.";
+          } else {
+            console.error("acca AI error", res.status);
+          }
+        } catch (e) {
+          console.error("acca AI failed", e);
+        }
+      }
+
+      // Resolve AI-chosen ids back to candidates, enforce one-per-match,
+      // and pad / fall back to top-probability picks if needed.
+      const candById = new Map(shortlist.map((c) => [`${c.matchId}-${c.market}-${c.selection}`, c]));
+      const seenMatch = new Set<number>();
+      const finalCands: Cand[] = [];
+      for (const id of chosenIds) {
+        const c = candById.get(id);
+        if (!c) continue;
+        if (seenMatch.has(c.matchId)) continue;
+        seenMatch.add(c.matchId);
+        finalCands.push(c);
+        if (finalCands.length >= targetLegs) break;
+      }
+      // Fallback / top-up
+      if (finalCands.length < targetLegs) {
+        for (const c of shortlist) {
+          if (seenMatch.has(c.matchId)) continue;
+          seenMatch.add(c.matchId);
+          finalCands.push(c);
+          if (finalCands.length >= targetLegs) break;
+        }
+      }
+
+      const legs: AccumulatorLeg[] = finalCands.map((c) => {
+        const id = `${c.matchId}-${c.market}-${c.selection}`;
+        const fair = c.probability > 0 ? +(100 / c.probability).toFixed(2) : 0;
+        return {
+          matchId: c.matchId,
+          homeTeam: c.homeTeam,
+          awayTeam: c.awayTeam,
+          competition: c.competition,
+          kickoff: c.kickoff,
+          market: c.market,
+          marketLabel: c.marketLabel,
+          selection: c.selection,
+          selectionLabel: c.selectionLabel,
+          probability: c.probability,
+          fairOdds: fair,
+          rationale:
+            rationales.get(id) ??
+            `Model gives this ${Math.round(c.probability)}% — among the strongest signals on today's slate.`,
+        };
+      });
+
+      const combinedProbability = legs.reduce((acc, l) => acc * (l.probability / 100), 1);
+      const combinedFairOdds = combinedProbability > 0 ? +(1 / combinedProbability).toFixed(2) : 0;
+
+      if (!aiSummary) {
+        aiSummary = legs.length
+          ? `${legs.length}-leg accumulator at ${(combinedProbability * 100).toFixed(1)}% combined model probability (fair odds ${combinedFairOdds.toFixed(2)}).`
+          : "Couldn't build an accumulator from today's slate.";
+      }
+
+      return {
+        legs,
+        combinedProbability,
+        combinedFairOdds,
+        summary: aiSummary,
+        considered: consideredCount,
+        error: null,
+      };
+    } catch (e) {
+      console.error("getAccumulatorBuilder failed", e);
+      return {
+        legs: [],
+        combinedProbability: 0,
+        combinedFairOdds: 0,
+        summary: "",
+        considered: 0,
+        error: e instanceof Error ? e.message : "Failed to build accumulator",
+      };
+    }
+  });

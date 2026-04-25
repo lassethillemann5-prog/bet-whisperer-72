@@ -1,23 +1,43 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getTodayPredictions, type TodayPickRow } from "@/server/football.functions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+import {
+  getAccumulatorBuilder,
+  type AccumulatorLeg,
+  type AccumulatorResponse,
+  type CoachMarket,
+} from "@/server/football.functions";
 import { addBet, getBankroll, type BankrollSettings } from "@/lib/football/bankroll";
-import { Layers, Plus, Search, Trash2, Receipt, Loader2 } from "lucide-react";
+import {
+  Layers,
+  Loader2,
+  Receipt,
+  Sparkles,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/accumulator")({
   head: () => ({
     meta: [
-      { title: "Accumulator builder · Pitchcast" },
+      { title: "AI accumulator builder · Pitchcast" },
       {
         name: "description",
         content:
-          "Combine 2–5 picks into an accumulator. See combined model probability, combined decimal odds, and save the bet to your bet log.",
+          "Let AI build your accumulator. Choose number of legs and minimum probability per leg, then save the parlay to your bet log.",
       },
     ],
   }),
@@ -27,38 +47,29 @@ export const Route = createFileRoute("/accumulator")({
 const MIN_LEGS = 2;
 const MAX_LEGS = 5;
 
-type Selection = {
-  market: "1x2" | "ou_25" | "btts";
-  marketLabel: string;
-  selection: string;
-  selectionLabel: string;
-  probability: number; // 0..1
-};
-
-type Leg = {
-  matchId: number;
-  homeTeam: string;
-  awayTeam: string;
-  competition: string | null;
-  utcDate: string;
-  selection: Selection;
-  decimalOdds: string; // free-text, parsed at submit
-};
+type EditableLeg = AccumulatorLeg & { decimalOdds: string };
 
 function AccumulatorPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const [rows, setRows] = useState<TodayPickRow[]>([]);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [legs, setLegs] = useState<Leg[]>([]);
+
+  // Builder controls
+  const [legCount, setLegCount] = useState<number>(3);
+  const [minProb, setMinProb] = useState<number>(60);
+  const [market, setMarket] = useState<CoachMarket>("any");
+
+  // Result
+  const [busy, setBusy] = useState(false);
+  const [response, setResponse] = useState<AccumulatorResponse | null>(null);
+  const [legs, setLegs] = useState<EditableLeg[]>([]);
+
+  // Bankroll + stake
   const [bankroll, setBankroll] = useState<BankrollSettings | null>(null);
   const [units, setUnits] = useState("1");
   const [saving, setSaving] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
 
-  // Tick every 30s so matches that have started disappear automatically.
+  // Auto-tick so kicked-off legs disappear from the slip
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(id);
@@ -70,96 +81,52 @@ function AccumulatorPage() {
 
   useEffect(() => {
     if (!user) return;
-    let cancelled = false;
-    setBusy(true);
-    setError(null);
-    Promise.all([
-      getTodayPredictions({ data: { computeBudget: 8 } }),
-      getBankroll(user.id),
-    ])
-      .then(([res, br]) => {
-        if (cancelled) return;
-        if (res.error) setError(res.error);
-        setRows(res.rows.filter((r) => r.best));
-        setBankroll(br);
-      })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => !cancelled && setBusy(false));
-    return () => {
-      cancelled = true;
-    };
+    getBankroll(user.id).then(setBankroll).catch(() => {});
   }, [user]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const upcoming = rows.filter((r) => new Date(r.match.utcDate).getTime() > now);
-    if (!q) return upcoming;
-    return upcoming.filter(
-      (r) =>
-        r.match.homeTeam.name.toLowerCase().includes(q) ||
-        r.match.awayTeam.name.toLowerCase().includes(q) ||
-        r.match.competition?.name?.toLowerCase().includes(q),
-    );
-  }, [rows, query, now]);
-
-  // Auto-remove legs for matches that have kicked off.
+  // Drop legs whose match has already kicked off
   useEffect(() => {
-    setLegs((prev) => prev.filter((l) => new Date(l.utcDate).getTime() > now));
+    setLegs((prev) => prev.filter((l) => new Date(l.kickoff).getTime() > now));
   }, [now]);
 
-  const selectionsForRow = (r: TodayPickRow): Selection[] => {
-    const out: Selection[] = [];
-    if (r.oneXTwo) {
-      out.push({ market: "1x2", marketLabel: "1X2", selection: "1", selectionLabel: r.match.homeTeam.name, probability: r.oneXTwo.home / 100 });
-      out.push({ market: "1x2", marketLabel: "1X2", selection: "X", selectionLabel: "Draw", probability: r.oneXTwo.draw / 100 });
-      out.push({ market: "1x2", marketLabel: "1X2", selection: "2", selectionLabel: r.match.awayTeam.name, probability: r.oneXTwo.away / 100 });
+  const generate = async () => {
+    setBusy(true);
+    try {
+      const res = await getAccumulatorBuilder({
+        data: { legs: legCount, minProbability: minProb, market },
+      });
+      setResponse(res);
+      if (res.error) {
+        toast.error(res.error);
+        setLegs([]);
+      } else if (res.legs.length === 0) {
+        toast.warning(res.summary || "No accumulator could be built with these settings.");
+        setLegs([]);
+      } else {
+        setLegs(
+          res.legs.map((l) => ({
+            ...l,
+            decimalOdds: l.fairOdds > 0 ? l.fairOdds.toFixed(2) : "2.00",
+          })),
+        );
+        toast.success(`AI built a ${res.legs.length}-leg accumulator`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to build accumulator");
+    } finally {
+      setBusy(false);
     }
-    if (r.ou25) {
-      out.push({ market: "ou_25", marketLabel: "O/U 2.5", selection: "Over", selectionLabel: "Over 2.5", probability: r.ou25.over / 100 });
-      out.push({ market: "ou_25", marketLabel: "O/U 2.5", selection: "Under", selectionLabel: "Under 2.5", probability: r.ou25.under / 100 });
-    }
-    if (r.btts) {
-      out.push({ market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "BTTS Yes", probability: r.btts.yes / 100 });
-      out.push({ market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "BTTS No", probability: r.btts.no / 100 });
-    }
-    return out;
-  };
-
-  const addLeg = (r: TodayPickRow, sel: Selection) => {
-    if (legs.length >= MAX_LEGS) {
-      toast.error(`Max ${MAX_LEGS} legs`);
-      return;
-    }
-    if (legs.some((l) => l.matchId === r.match.id)) {
-      toast.error("That match is already in the accumulator");
-      return;
-    }
-    // Suggest fair odds (1 / probability) as starting value
-    const fair = sel.probability > 0 ? (1 / sel.probability).toFixed(2) : "2.00";
-    setLegs((prev) => [
-      ...prev,
-      {
-        matchId: r.match.id,
-        homeTeam: r.match.homeTeam.name,
-        awayTeam: r.match.awayTeam.name,
-        competition: r.match.competition?.name ?? null,
-        utcDate: r.match.utcDate,
-        selection: sel,
-        decimalOdds: fair,
-      },
-    ]);
   };
 
   const removeLeg = (matchId: number) => {
     setLegs((prev) => prev.filter((l) => l.matchId !== matchId));
   };
-
   const updateLegOdds = (matchId: number, value: string) => {
     setLegs((prev) => prev.map((l) => (l.matchId === matchId ? { ...l, decimalOdds: value } : l)));
   };
 
-  const combinedProb = useMemo(
-    () => legs.reduce((acc, l) => acc * l.selection.probability, 1),
+  const combinedModelProb = useMemo(
+    () => legs.reduce((acc, l) => acc * (l.probability / 100), 1),
     [legs],
   );
   const combinedOdds = useMemo(() => {
@@ -175,9 +142,8 @@ function AccumulatorPage() {
     }
     return { value: p, valid };
   }, [legs]);
-
   const impliedBookProb = combinedOdds.valid && combinedOdds.value > 0 ? 1 / combinedOdds.value : 0;
-  const edgePct = combinedOdds.valid ? (combinedProb - impliedBookProb) * 100 : 0;
+  const edgePct = combinedOdds.valid ? (combinedModelProb - impliedBookProb) * 100 : 0;
 
   const unitSize = Number(bankroll?.unit_size ?? 0);
   const stake = useMemo(() => {
@@ -197,13 +163,14 @@ function AccumulatorPage() {
     setSaving(true);
     try {
       const selectionLabel = legs
-        .map((l) => `${l.homeTeam} v ${l.awayTeam}: ${l.selection.selectionLabel}`)
+        .map((l) => `${l.homeTeam} v ${l.awayTeam}: ${l.selectionLabel}`)
         .join(" • ");
-      const notes = `Accumulator (${legs.length} legs)\n` +
+      const notes =
+        `AI accumulator (${legs.length} legs)\n` +
         legs
           .map(
             (l) =>
-              `• ${l.competition ?? "-"} | ${l.homeTeam} vs ${l.awayTeam} | ${l.selection.marketLabel} ${l.selection.selectionLabel} @ ${l.decimalOdds} (model ${(l.selection.probability * 100).toFixed(0)}%)`,
+              `• ${l.competition ?? "-"} | ${l.homeTeam} vs ${l.awayTeam} | ${l.marketLabel} ${l.selectionLabel} @ ${l.decimalOdds} (model ${Math.round(l.probability)}%)`,
           )
           .join("\n");
 
@@ -213,13 +180,13 @@ function AccumulatorPage() {
         homeTeam: null,
         awayTeam: null,
         competition: `Accumulator · ${legs.length} legs`,
-        utcDate: legs[0]?.utcDate ?? null,
+        utcDate: legs[0]?.kickoff ?? null,
         market: "accumulator",
         selection: selectionLabel,
         decimalOdds: +combinedOdds.value.toFixed(4),
         stake,
         units: u,
-        modelProbability: combinedProb,
+        modelProbability: combinedModelProb,
         notes,
       });
       toast.success(`Accumulator logged · ${u}u @ ${combinedOdds.value.toFixed(2)}`);
@@ -241,102 +208,173 @@ function AccumulatorPage() {
           <Layers className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="font-display text-3xl font-bold leading-tight">Accumulator builder</h1>
+          <h1 className="font-display text-3xl font-bold leading-tight">AI accumulator builder</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Combine {MIN_LEGS}–{MAX_LEGS} picks. We multiply leg model probabilities, you set bookmaker odds, then compare implied vs. modeled edge.
+            Pick how many legs and the minimum model probability per leg. The AI picks the best combination from today's predictions, one leg per match.
           </p>
         </div>
       </header>
 
-      {error && (
-        <div className="mb-6 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+        {/* Left: AI controls + result */}
+        <section className="space-y-4">
+          <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-secondary/30 to-secondary/30 p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <h2 className="font-display text-lg font-bold">AI builder</h2>
+            </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        {/* Left: candidates */}
-        <section className="rounded-2xl border border-border/60 bg-secondary/20 p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <h2 className="font-display text-lg font-bold">Today's predictions</h2>
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              {filtered.length} matches
-            </span>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Number of legs · {legCount}
+                </Label>
+                <Slider
+                  className="mt-3"
+                  min={MIN_LEGS}
+                  max={MAX_LEGS}
+                  step={1}
+                  value={[legCount]}
+                  onValueChange={(v) => setLegCount(v[0] ?? 3)}
+                />
+                <div className="mt-1 flex justify-between font-mono text-[10px] text-muted-foreground">
+                  <span>{MIN_LEGS}</span>
+                  <span>{MAX_LEGS}</span>
+                </div>
+              </div>
+
+              <div>
+                <Label className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Min probability per leg · {minProb}%
+                </Label>
+                <Slider
+                  className="mt-3"
+                  min={40}
+                  max={90}
+                  step={1}
+                  value={[minProb]}
+                  onValueChange={(v) => setMinProb(v[0] ?? 60)}
+                />
+                <div className="mt-1 flex justify-between font-mono text-[10px] text-muted-foreground">
+                  <span>40%</span>
+                  <span>90%</span>
+                </div>
+              </div>
+
+              <div className="sm:col-span-2">
+                <Label className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Markets to consider
+                </Label>
+                <Select value={market} onValueChange={(v) => setMarket(v as CoachMarket)}>
+                  <SelectTrigger className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any market (recommended)</SelectItem>
+                    <SelectItem value="1x2">Match Result (1X2) only</SelectItem>
+                    <SelectItem value="ou_25">Over/Under 2.5 only</SelectItem>
+                    <SelectItem value="btts">BTTS only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Button onClick={generate} disabled={busy} className="mt-5 w-full gap-2">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+              {busy ? "Building accumulator…" : "Generate accumulator"}
+            </Button>
           </div>
-          <div className="relative mb-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search team or league…"
-              className="pl-9"
-            />
-          </div>
-          {busy ? (
+
+          {/* AI summary */}
+          {response && !response.error && (
+            <div className="rounded-2xl border border-border/60 bg-secondary/20 p-4">
+              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary">
+                AI summary
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                {response.summary || "Picks ready."}
+              </p>
+              <div className="mt-2 font-mono text-[10px] text-muted-foreground">
+                Considered {response.considered} match{response.considered === 1 ? "" : "es"} with predictions
+              </div>
+            </div>
+          )}
+
+          {/* Per-leg rationales */}
+          {legs.length > 0 && (
             <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-20 animate-pulse rounded-xl bg-secondary/40" />
+              {legs.map((l, i) => (
+                <article
+                  key={l.matchId}
+                  className="rounded-2xl border border-border/60 bg-background/40 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/20 font-mono text-[11px] font-bold text-primary">
+                          {i + 1}
+                        </span>
+                        <Link
+                          to="/match/$matchId"
+                          params={{ matchId: String(l.matchId) }}
+                          className="truncate font-display text-sm font-semibold hover:text-primary"
+                        >
+                          {l.homeTeam} <span className="text-muted-foreground">vs</span> {l.awayTeam}
+                        </Link>
+                      </div>
+                      <div className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                        {l.competition ?? "—"} ·{" "}
+                        {new Date(l.kickoff).toLocaleString(undefined, {
+                          weekday: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="rounded-md bg-secondary/60 px-2 py-0.5 font-mono uppercase tracking-[0.15em]">
+                          {l.marketLabel}
+                        </span>
+                        <b className="text-foreground">{l.selectionLabel}</b>
+                        <span className="font-mono tabular-nums text-primary">
+                          {Math.round(l.probability)}%
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          fair {l.fairOdds.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs italic leading-relaxed text-muted-foreground">
+                        {l.rationale}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => removeLeg(l.matchId)}
+                      className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="Remove leg"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </article>
               ))}
             </div>
-          ) : filtered.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">
-              No fixtures with predictions today. Check back later or open Today's picks first.
+          )}
+
+          {/* Empty state */}
+          {!busy && !response && (
+            <div className="rounded-2xl border border-dashed border-border/60 px-4 py-12 text-center text-sm text-muted-foreground">
+              Set your preferences and tap <b className="text-foreground">Generate accumulator</b> — the AI builds the best combo from today's slate.
             </div>
-          ) : (
-            <ul className="space-y-2">
-              {filtered.slice(0, 30).map((r) => {
-                const inAcc = legs.some((l) => l.matchId === r.match.id);
-                const sels = selectionsForRow(r);
-                return (
-                  <li
-                    key={r.match.id}
-                    className={`rounded-xl border px-3 py-3 transition ${
-                      inAcc ? "border-primary/60 bg-primary/5" : "border-border/60 bg-background/40"
-                    }`}
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate font-display text-sm font-semibold">
-                          {r.match.homeTeam.name} <span className="text-muted-foreground">vs</span> {r.match.awayTeam.name}
-                        </div>
-                        <div className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                          {r.match.competition?.name ?? "—"} ·{" "}
-                          {new Date(r.match.utcDate).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {sels.map((s) => (
-                        <button
-                          key={`${s.market}-${s.selection}`}
-                          onClick={() => addLeg(r, s)}
-                          disabled={inAcc}
-                          className="group inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-secondary/40 px-2 py-1 text-xs transition hover:border-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
-                            {s.marketLabel}
-                          </span>
-                          <span className="font-semibold">{s.selectionLabel}</span>
-                          <span className="font-mono tabular-nums text-primary">
-                            {(s.probability * 100).toFixed(0)}%
-                          </span>
-                          {!inAcc && <Plus className="h-3 w-3 opacity-0 transition group-hover:opacity-100" />}
-                        </button>
-                      ))}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
           )}
         </section>
 
-        {/* Right: slip */}
+        {/* Right: bet slip */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-secondary/40 to-secondary/40 p-5">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">Bet slip</div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+                  Bet slip
+                </div>
                 <h2 className="font-display text-xl font-bold">
                   {legs.length} {legs.length === 1 ? "leg" : "legs"}
                 </h2>
@@ -350,33 +388,21 @@ function AccumulatorPage() {
 
             {legs.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">
-                Tap a market chip on the left to add legs. Min {MIN_LEGS}, max {MAX_LEGS}.
+                No legs yet. Generate an accumulator to fill your slip.
               </div>
             ) : (
               <ul className="space-y-2">
                 {legs.map((l) => (
                   <li key={l.matchId} className="rounded-xl bg-background/60 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-display text-sm font-semibold">
-                          {l.homeTeam} vs {l.awayTeam}
-                        </div>
-                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                          <span className="font-mono uppercase tracking-[0.15em]">{l.selection.marketLabel}</span>{" "}
-                          · <b className="text-foreground">{l.selection.selectionLabel}</b>{" "}
-                          · model{" "}
-                          <span className="font-mono tabular-nums text-primary">
-                            {(l.selection.probability * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => removeLeg(l.matchId)}
-                        className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        aria-label="Remove leg"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                    <div className="truncate font-display text-sm font-semibold">
+                      {l.homeTeam} vs {l.awayTeam}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      <span className="font-mono uppercase tracking-[0.15em]">{l.marketLabel}</span>{" "}
+                      · <b className="text-foreground">{l.selectionLabel}</b> · model{" "}
+                      <span className="font-mono tabular-nums text-primary">
+                        {Math.round(l.probability)}%
+                      </span>
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                       <Label className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
@@ -392,7 +418,7 @@ function AccumulatorPage() {
                         className="h-8 w-24"
                       />
                       <span className="font-mono text-[10px] text-muted-foreground">
-                        fair ≈ {l.selection.probability > 0 ? (1 / l.selection.probability).toFixed(2) : "—"}
+                        fair ≈ {l.fairOdds.toFixed(2)}
                       </span>
                     </div>
                   </li>
@@ -404,7 +430,7 @@ function AccumulatorPage() {
             <div className="mt-5 grid grid-cols-2 gap-2">
               <Stat
                 label="Combined model prob"
-                value={`${(combinedProb * 100).toFixed(2)}%`}
+                value={legs.length > 0 ? `${(combinedModelProb * 100).toFixed(2)}%` : "—"}
                 tone="primary"
               />
               <Stat
@@ -414,11 +440,19 @@ function AccumulatorPage() {
               />
               <Stat
                 label="Implied book prob"
-                value={combinedOdds.valid && legs.length > 0 ? `${(impliedBookProb * 100).toFixed(2)}%` : "—"}
+                value={
+                  combinedOdds.valid && legs.length > 0
+                    ? `${(impliedBookProb * 100).toFixed(2)}%`
+                    : "—"
+                }
               />
               <Stat
                 label="Model edge"
-                value={combinedOdds.valid && legs.length > 0 ? `${edgePct >= 0 ? "+" : ""}${edgePct.toFixed(2)}%` : "—"}
+                value={
+                  combinedOdds.valid && legs.length > 0
+                    ? `${edgePct >= 0 ? "+" : ""}${edgePct.toFixed(2)}%`
+                    : "—"
+                }
                 tone={edgePct > 0 ? "good" : edgePct < 0 ? "bad" : "muted"}
               />
             </div>
@@ -440,7 +474,8 @@ function AccumulatorPage() {
                     className="h-8 w-24"
                   />
                   <span className="font-mono text-xs text-muted-foreground">
-                    × {formatMoney(unitSize, bankroll.currency)} = <b className="text-foreground">{formatMoney(stake, bankroll.currency)}</b>
+                    × {formatMoney(unitSize, bankroll.currency)} ={" "}
+                    <b className="text-foreground">{formatMoney(stake, bankroll.currency)}</b>
                   </span>
                 </div>
                 {combinedOdds.valid && legs.length > 0 && (
@@ -458,9 +493,9 @@ function AccumulatorPage() {
             ) : (
               <div className="mt-4 rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground">
                 Set up your bankroll to log stakes →{" "}
-                <a href="/bankroll" className="text-primary hover:underline">
+                <Link to="/bankroll" className="text-primary hover:underline">
                   Bankroll
-                </a>
+                </Link>
               </div>
             )}
 
@@ -501,7 +536,9 @@ function Stat({
       <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </div>
-      <div className={`mt-0.5 font-display text-lg font-bold tabular-nums ${toneClass}`}>{value}</div>
+      <div className={`mt-0.5 font-display text-lg font-bold tabular-nums ${toneClass}`}>
+        {value}
+      </div>
     </div>
   );
 }
