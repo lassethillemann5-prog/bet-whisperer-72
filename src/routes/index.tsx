@@ -262,6 +262,7 @@ function IndexPage() {
   return (
     <AppShell>
       <Hero count={matches.length} days={DAYS_WINDOW} />
+      <PickOfTheDayBanner pick={pickOfDay} busy={pickOfDayBusy} />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks" | "coach")} className="mb-6">
         <TabsList className="h-10 p-1">
