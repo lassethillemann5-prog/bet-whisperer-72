@@ -3,22 +3,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
 import { MatchCard } from "@/components/app/MatchCard";
-import { getFixtures } from "@/server/football.functions";
+import { getFixtures, getTodayPredictions, type TodayPickRow } from "@/server/football.functions";
 import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Link } from "@tanstack/react-router";
-import { getValuePicks, type ValuePick } from "@/server/valuePicks.functions";
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
   Flame,
+  Loader2,
+  RefreshCw,
   Search,
   Sparkles,
   Trophy,
+  Trophy as TrophyIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,8 +41,11 @@ function IndexPage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"fixtures" | "picks">("fixtures");
-  const [picks, setPicks] = useState<ValuePick[]>([]);
-  const [picksBusy, setPicksBusy] = useState(false);
+  const [todayRows, setTodayRows] = useState<TodayPickRow[]>([]);
+  const [todayBusy, setTodayBusy] = useState(false);
+  const [todayMissing, setTodayMissing] = useState(0);
+  const [todayComputed, setTodayComputed] = useState(0);
+  const [todayLoaded, setTodayLoaded] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -63,44 +68,40 @@ function IndexPage() {
     return () => { cancelled = true; };
   }, [user]);
 
-  // Load value picks for the "Today's picks" tab
+  const loadTodayPredictions = async () => {
+    setTodayBusy(true);
+    try {
+      const res = await getTodayPredictions({ data: { computeBudget: 8 } });
+      setTodayRows(res.rows);
+      setTodayMissing(res.missing);
+      setTodayComputed(res.computed);
+      setTodayLoaded(true);
+      if (res.error) toast.error(res.error);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load today's picks");
+    } finally {
+      setTodayBusy(false);
+    }
+  };
+
+  // Lazy-load today's predictions the first time the picks tab is opened
   useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    setPicksBusy(true);
-    getValuePicks({ data: { userId: user.id } })
-      .then((res) => {
-        if (cancelled) return;
-        setPicks(res.picks);
-      })
-      .catch(() => {})
-      .finally(() => !cancelled && setPicksBusy(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+    if (tab === "picks" && !todayLoaded && !todayBusy && user) {
+      void loadTodayPredictions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, todayLoaded, user]);
 
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
 
-  // Today's picks: best positive-edge pick per tracked match kicking off today
-  const todaysPicks = useMemo(() => {
-    const today = isoDay(new Date());
-    const byMatch = new Map<number, ValuePick[]>();
-    for (const p of picks) {
-      if (isoDay(new Date(p.utcDate)) !== today) continue;
-      if (p.edgePct <= 0) continue;
-      const arr = byMatch.get(p.matchId) ?? [];
-      arr.push(p);
-      byMatch.set(p.matchId, arr);
-    }
-    const rows: { match: ValuePick; alternates: number }[] = [];
-    for (const [, list] of byMatch) {
-      const sorted = [...list].sort((a, b) => b.modelProb - a.modelProb);
-      rows.push({ match: sorted[0], alternates: sorted.length - 1 });
-    }
-    rows.sort((a, b) => b.match.modelProb - a.match.modelProb);
-    return rows;
-  }, [picks]);
+  // Sort today's rows by best-pick probability descending (rows without
+  // predictions sink to the bottom).
+  const sortedTodayRows = useMemo(() => {
+    const withProb = todayRows.filter((r) => r.best);
+    const without = todayRows.filter((r) => !r.best);
+    withProb.sort((a, b) => (b.best?.probability ?? 0) - (a.best?.probability ?? 0));
+    return [...withProb, ...without];
+  }, [todayRows]);
 
   useEffect(() => {
     setVisible(24);
