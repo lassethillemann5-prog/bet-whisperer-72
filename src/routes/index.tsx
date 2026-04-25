@@ -593,18 +593,30 @@ function TodaysPicksPanel({
   const [pickComp, setPickComp] = useState<string>("all");
   const [pickMarket, setPickMarket] = useState<"all" | "1x2" | "ou_25" | "btts">("all");
   const [minConf, setMinConf] = useState<number>(0);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Tick every 30s so matches that have kicked off disappear automatically.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const upcomingRows = useMemo(
+    () => rows.filter((r) => new Date(r.match.utcDate).getTime() > now),
+    [rows, now],
+  );
 
   const competitions = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const r of rows) {
+    for (const r of upcomingRows) {
       const name = r.match.competition?.name ?? "Other";
       counts.set(name, (counts.get(name) ?? 0) + 1);
     }
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  }, [rows]);
+  }, [upcomingRows]);
 
   const filtered = useMemo(() => {
-    let out = rows;
+    let out = upcomingRows;
     if (pickComp !== "all") {
       out = out.filter((r) => (r.match.competition?.name ?? "Other") === pickComp);
     }
@@ -624,7 +636,7 @@ function TodaysPicksPanel({
       );
     }
     return out;
-  }, [rows, pickComp, pickMarket, minConf, pickQuery]);
+  }, [upcomingRows, pickComp, pickMarket, minConf, pickQuery]);
 
   const confSteps: { label: string; value: number }[] = [
     { label: "Any", value: 0 },
@@ -647,7 +659,7 @@ function TodaysPicksPanel({
     (minConf > 0 ? 1 : 0) +
     (pickQuery.trim() ? 1 : 0);
 
-  if (busy && rows.length === 0) {
+  if (busy && upcomingRows.length === 0) {
     return (
       <div className="space-y-2">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -659,12 +671,12 @@ function TodaysPicksPanel({
       </div>
     );
   }
-  if (rows.length === 0) {
+  if (upcomingRows.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border/60 px-6 py-16 text-center">
-        <p className="font-display text-lg font-semibold">No fixtures today</p>
+        <p className="font-display text-lg font-semibold">No upcoming fixtures today</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Check back closer to kickoff, or browse upcoming days on the Fixtures tab.
+          All of today's matches have already kicked off. Browse upcoming days on the Fixtures tab.
         </p>
       </div>
     );
@@ -675,7 +687,8 @@ function TodaysPicksPanel({
         <h2 className="font-display text-xl font-bold">Today's model probabilities</h2>
         <div className="h-px flex-1 bg-border/60" />
         <span className="font-mono text-xs text-muted-foreground">
-          {filtered.length}/{rows.length} {rows.length === 1 ? "match" : "matches"}
+          {filtered.length}/{upcomingRows.length}{" "}
+          {upcomingRows.length === 1 ? "match" : "matches"}
           {computed > 0 && ` · ${computed} freshly computed`}
         </span>
         {missing > 0 && (
@@ -773,7 +786,7 @@ function TodaysPicksPanel({
                 >
                   <Trophy className="h-3.5 w-3.5" />
                   All
-                  <span className="font-mono text-[10px] opacity-70">{rows.length}</span>
+                  <span className="font-mono text-[10px] opacity-70">{upcomingRows.length}</span>
                 </Button>
                 {competitions.map(([name, count]) => (
                   <Button
