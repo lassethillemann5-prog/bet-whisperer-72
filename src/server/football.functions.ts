@@ -1,5 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
-import { fetchMatch, fetchTeamForm, fetchUpcomingMatches } from "./footballData.server";
+import {
+  fetchHeadToHead,
+  fetchMatch,
+  fetchRecentMatches,
+  fetchTeamForm,
+  fetchUpcomingMatches,
+} from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
@@ -642,3 +648,195 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
       return { recommendations: [], summary: "", considered: 0, error: msg };
     }
   });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Head-to-head & recent results for the match detail page
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface H2HMatchRow {
+  id: number;
+  utcDate: string;
+  competition: string | null;
+  homeTeam: { id: number; name: string };
+  awayTeam: { id: number; name: string };
+  scoreHome: number | null;
+  scoreAway: number | null;
+}
+
+export interface H2HResponse {
+  h2h: H2HMatchRow[];
+  homeRecent: H2HMatchRow[];
+  awayRecent: H2HMatchRow[];
+  summary: { homeWins: number; awayWins: number; draws: number };
+  error: string | null;
+}
+
+function toH2HRow(m: MatchSummary): H2HMatchRow {
+  return {
+    id: m.id,
+    utcDate: m.utcDate,
+    competition: m.competition?.name ?? null,
+    homeTeam: { id: m.homeTeam.id, name: m.homeTeam.name },
+    awayTeam: { id: m.awayTeam.id, name: m.awayTeam.name },
+    scoreHome: m.score.fullTime.home,
+    scoreAway: m.score.fullTime.away,
+  };
+}
+
+export const getMatchH2H = createServerFn({ method: "POST" })
+  .inputValidator((input: { homeTeamId: number; awayTeamId: number }) => input)
+  .handler(async ({ data }): Promise<H2HResponse> => {
+    try {
+      const [h2hMatches, homeRecent, awayRecent] = await Promise.all([
+        fetchHeadToHead(data.homeTeamId, data.awayTeamId, 5),
+        fetchRecentMatches(data.homeTeamId, 5),
+        fetchRecentMatches(data.awayTeamId, 5),
+      ]);
+
+      let homeWins = 0, awayWins = 0, draws = 0;
+      for (const m of h2hMatches) {
+        const h = m.score.fullTime.home;
+        const a = m.score.fullTime.away;
+        if (h == null || a == null) continue;
+        const homeIsTarget = m.homeTeam.id === data.homeTeamId;
+        const targetGoals = homeIsTarget ? h : a;
+        const opponentGoals = homeIsTarget ? a : h;
+        if (targetGoals > opponentGoals) homeWins++;
+        else if (targetGoals < opponentGoals) awayWins++;
+        else draws++;
+      }
+
+      return {
+        h2h: h2hMatches.map(toH2HRow),
+        homeRecent: homeRecent.map(toH2HRow),
+        awayRecent: awayRecent.map(toH2HRow),
+        summary: { homeWins, awayWins, draws },
+        error: null,
+      };
+    } catch (e) {
+      console.error("getMatchH2H failed", e);
+      const msg = e instanceof Error ? e.message : "Failed to load head-to-head";
+      return {
+        h2h: [],
+        homeRecent: [],
+        awayRecent: [],
+        summary: { homeWins: 0, awayWins: 0, draws: 0 },
+        error: msg,
+      };
+    }
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pick of the Day — single AI-curated highlight
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PickOfTheDayResponse {
+  pick: {
+    matchId: number;
+    homeTeam: string;
+    awayTeam: string;
+    competition: string | null;
+    kickoff: string;
+    market: string;
+    marketLabel: string;
+    selection: string;
+    selectionLabel: string;
+    probability: number;
+    expectedGoals: { home: number; away: number };
+  } | null;
+  considered: number;
+  error: string | null;
+}
+
+export const getPickOfTheDay = createServerFn({ method: "GET" }).handler(
+  async (): Promise<PickOfTheDayResponse> => {
+    try {
+      const supabase = adminClient();
+      const all = await fetchUpcomingMatches(2);
+      const today = new Date();
+      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const nowMs = Date.now();
+      const fixtures = all.filter((m) => {
+        const d = new Date(m.utcDate);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        return key === todayKey && d.getTime() > nowMs;
+      });
+
+      if (fixtures.length === 0) {
+        return { pick: null, considered: 0, error: null };
+      }
+
+      const ids = fixtures.map((f) => f.id);
+      const { data: cachedRows } = await supabase
+        .from("predictions_cache")
+        .select("match_id, payload")
+        .in("match_id", ids);
+
+      const cacheMap = new Map<number, { match: MatchSummary; predictions: MatchPredictions }>();
+      for (const row of cachedRows ?? []) {
+        cacheMap.set(
+          row.match_id as number,
+          row.payload as unknown as { match: MatchSummary; predictions: MatchPredictions },
+        );
+      }
+
+      type Cand = {
+        matchId: number;
+        homeTeam: string;
+        awayTeam: string;
+        competition: string | null;
+        kickoff: string;
+        market: string;
+        marketLabel: string;
+        selection: string;
+        selectionLabel: string;
+        probability: number;
+        expectedGoals: { home: number; away: number };
+      };
+
+      const all_candidates: Cand[] = [];
+      for (const f of fixtures) {
+        const cached = cacheMap.get(f.id);
+        if (!cached) continue;
+        const { oneXTwo, ou25, btts } = extractMarkets(cached.predictions);
+        const base = {
+          matchId: f.id,
+          homeTeam: f.homeTeam.name,
+          awayTeam: f.awayTeam.name,
+          competition: f.competition?.name ?? null,
+          kickoff: f.utcDate,
+          expectedGoals: {
+            home: cached.predictions.expectedGoalsHome,
+            away: cached.predictions.expectedGoalsAway,
+          },
+        };
+        if (oneXTwo) {
+          const map = { "1": ["Home", oneXTwo.home], X: ["Draw", oneXTwo.draw], "2": ["Away", oneXTwo.away] } as const;
+          const [label, prob] = map[oneXTwo.pick as "1" | "X" | "2"] ?? ["", 0];
+          all_candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: oneXTwo.pick, selectionLabel: label as string, probability: prob as number });
+        }
+        if (ou25) {
+          const prob = ou25.pick === "Over" ? ou25.over : ou25.under;
+          all_candidates.push({ ...base, market: "ou_25", marketLabel: "Over/Under 2.5", selection: ou25.pick, selectionLabel: `${ou25.pick} 2.5`, probability: prob });
+        }
+        if (btts) {
+          const prob = btts.pick === "Yes" ? btts.yes : btts.no;
+          all_candidates.push({ ...base, market: "btts", marketLabel: "Both Teams To Score", selection: btts.pick, selectionLabel: `BTTS ${btts.pick}`, probability: prob });
+        }
+      }
+
+      // Sort by probability descending and pick the highest-confidence selection
+      all_candidates.sort((a, b) => b.probability - a.probability);
+      const pick = all_candidates[0] ?? null;
+
+      return { pick, considered: cacheMap.size, error: null };
+    } catch (e) {
+      console.error("getPickOfTheDay failed", e);
+      return {
+        pick: null,
+        considered: 0,
+        error: e instanceof Error ? e.message : "Failed to load pick of the day",
+      };
+    }
+  },
+);

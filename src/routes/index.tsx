@@ -6,9 +6,11 @@ import { MatchCard } from "@/components/app/MatchCard";
 import {
   getCoachRecommendations,
   getFixtures,
+  getPickOfTheDay,
   getTodayPredictions,
   type CoachMarket,
   type CoachRecommendation,
+  type PickOfTheDayResponse,
   type TodayPickRow,
 } from "@/server/football.functions";
 import type { MatchSummary } from "@/lib/football/types";
@@ -28,6 +30,8 @@ import {
   Sparkles,
   Trophy,
   Bot,
+  Crown,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
@@ -55,6 +59,8 @@ function IndexPage() {
   const [todayMissing, setTodayMissing] = useState(0);
   const [todayComputed, setTodayComputed] = useState(0);
   const [todayLoaded, setTodayLoaded] = useState(false);
+  const [pickOfDay, setPickOfDay] = useState<PickOfTheDayResponse["pick"]>(null);
+  const [pickOfDayBusy, setPickOfDayBusy] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -74,6 +80,18 @@ function IndexPage() {
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => !cancelled && setBusy(false));
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // Load Pick of the Day independently — uses cached predictions only, fast.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setPickOfDayBusy(true);
+    getPickOfTheDay()
+      .then((res) => !cancelled && setPickOfDay(res.pick))
+      .catch(() => {})
+      .finally(() => !cancelled && setPickOfDayBusy(false));
     return () => { cancelled = true; };
   }, [user]);
 
@@ -244,6 +262,7 @@ function IndexPage() {
   return (
     <AppShell>
       <Hero count={matches.length} days={DAYS_WINDOW} />
+      <PickOfTheDayBanner pick={pickOfDay} busy={pickOfDayBusy} />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks" | "coach")} className="mb-6">
         <TabsList className="h-10 p-1">
@@ -430,6 +449,73 @@ function IndexPage() {
         </TabsContent>
       </Tabs>
     </AppShell>
+  );
+}
+
+function PickOfTheDayBanner({
+  pick,
+  busy,
+}: {
+  pick: PickOfTheDayResponse["pick"];
+  busy: boolean;
+}) {
+  if (busy && !pick) {
+    return (
+      <div className="mb-6 h-24 animate-pulse rounded-2xl border border-border/60 bg-secondary/40" />
+    );
+  }
+  if (!pick) return null;
+  const kickoff = new Date(pick.kickoff);
+  const conf =
+    pick.probability >= 70 ? "high" : pick.probability >= 60 ? "medium" : "lean";
+  return (
+    <Link
+      to="/match/$matchId"
+      params={{ matchId: String(pick.matchId) }}
+      className="group mb-8 block overflow-hidden rounded-2xl border border-primary/40 bg-gradient-to-r from-primary/15 via-primary/5 to-secondary/30 transition hover:border-primary"
+    >
+      <div className="grid items-center gap-4 p-5 sm:grid-cols-[auto_1fr_auto] sm:p-6">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary">
+          <Crown className="h-6 w-6" />
+        </div>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+            <span>Pick of the day</span>
+            {pick.competition && (
+              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-primary/90">
+                {pick.competition}
+              </span>
+            )}
+            <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-muted-foreground">
+              {conf} confidence
+            </span>
+          </div>
+          <div className="mt-1 truncate font-display text-lg font-bold sm:text-xl">
+            {pick.homeTeam} vs {pick.awayTeam}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {kickoff.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+            </span>
+            <span className="font-mono">
+              {pick.marketLabel} · <span className="text-foreground">{pick.selectionLabel}</span>
+            </span>
+            <span className="font-mono tabular-nums">
+              xG {pick.expectedGoals.home.toFixed(1)}–{pick.expectedGoals.away.toFixed(1)}
+            </span>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            Model
+          </div>
+          <div className="font-display text-3xl font-bold tabular-nums text-primary">
+            {pick.probability.toFixed(0)}%
+          </div>
+        </div>
+      </div>
+    </Link>
   );
 }
 
