@@ -16,6 +16,7 @@ import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/fo
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Link } from "@tanstack/react-router";
 import {
   Calendar,
@@ -181,6 +182,26 @@ function IndexPage() {
   const PAGE_SIZE = 24;
   const shownMatches = filtered.slice(0, visible);
   const remaining = filtered.length - shownMatches.length;
+
+  // Group shown matches by competition name, preserving the order from `competitions`
+  // (which is sorted by match count desc).
+  const groupedShown = useMemo(() => {
+    const groups = new Map<string, MatchSummary[]>();
+    for (const m of shownMatches) {
+      const name = m.competition?.name ?? "Other";
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name)!.push(m);
+    }
+    // Sort matches inside each group by kickoff time ascending
+    for (const arr of groups.values()) {
+      arr.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
+    }
+    // Order groups by descending match count, then alphabetically
+    return Array.from(groups.entries()).sort((a, b) => {
+      if (b[1].length !== a[1].length) return b[1].length - a[1].length;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [shownMatches]);
 
   const shiftDate = (delta: number) => {
     const idx = dateOptions.findIndex((d) => d.iso === selectedDate);
@@ -358,16 +379,41 @@ function IndexPage() {
               {shownMatches.length}/{filtered.length}
             </span>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {shownMatches.map((m) => (
-              <MatchCard
-                key={m.id}
-                match={m}
-                isTracked={trackedIds.has(m.id)}
-                onToggleTrack={() => toggleTrack(m)}
-              />
+          <Accordion
+            type="multiple"
+            defaultValue={groupedShown.map(([name]) => name)}
+            className="space-y-2"
+          >
+            {groupedShown.map(([name, group]) => (
+              <AccordionItem
+                key={name}
+                value={name}
+                className="rounded-2xl border border-border/60 bg-secondary/30 px-4"
+              >
+                <AccordionTrigger className="hover:no-underline py-3">
+                  <div className="flex items-center gap-3">
+                    <Trophy className="h-4 w-4 text-primary" />
+                    <span className="font-display text-sm font-bold">{name}</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {group.length} {group.length === 1 ? "match" : "matches"}
+                    </span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-1">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.map((m) => (
+                      <MatchCard
+                        key={m.id}
+                        match={m}
+                        isTracked={trackedIds.has(m.id)}
+                        onToggleTrack={() => toggleTrack(m)}
+                      />
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
             ))}
-          </div>
+          </Accordion>
           {remaining > 0 && (
             <div className="mt-4 flex justify-center">
               <Button
