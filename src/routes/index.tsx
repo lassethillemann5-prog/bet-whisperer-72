@@ -58,6 +58,7 @@ function IndexPage() {
   const [query, setQuery] = useState("");
   const [competition, setCompetition] = useState<string>("all");
   const [visible, setVisible] = useState<number>(24);
+  const [sortBy, setSortBy] = useState<"popularity" | "time">("popularity");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"fixtures" | "picks" | "coach">("fixtures");
