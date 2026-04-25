@@ -48,6 +48,42 @@ export const Route = createFileRoute("/")({
   component: IndexPage,
 });
 
+// Popularity ranking for competitions. Higher = more popular.
+// Matched against competition name (case-insensitive substring match).
+const COMPETITION_TIERS: Array<{ patterns: string[]; rank: number }> = [
+  { patterns: ["uefa champions league", "champions league"], rank: 100 },
+  { patterns: ["uefa europa league", "europa league"], rank: 90 },
+  { patterns: ["uefa europa conference", "conference league"], rank: 80 },
+  { patterns: ["premier league", "england - premier"], rank: 95 },
+  { patterns: ["la liga", "laliga", "primera division", "spain - la liga"], rank: 92 },
+  { patterns: ["serie a", "italy - serie a"], rank: 90 },
+  { patterns: ["bundesliga"], rank: 88 },
+  { patterns: ["ligue 1"], rank: 85 },
+  { patterns: ["world cup", "fifa world cup"], rank: 100 },
+  { patterns: ["euro championship", "uefa euro", "european championship"], rank: 95 },
+  { patterns: ["copa america", "copa américa"], rank: 88 },
+  { patterns: ["copa libertadores"], rank: 78 },
+  { patterns: ["uefa nations league", "nations league"], rank: 78 },
+  { patterns: ["fa cup"], rank: 70 },
+  { patterns: ["copa del rey"], rank: 68 },
+  { patterns: ["coppa italia"], rank: 65 },
+  { patterns: ["dfb pokal", "dfb-pokal"], rank: 65 },
+  { patterns: ["championship"], rank: 60 },
+  { patterns: ["eredivisie"], rank: 58 },
+  { patterns: ["primeira liga", "liga portugal"], rank: 58 },
+  { patterns: ["mls", "major league soccer"], rank: 55 },
+  { patterns: ["brasileirao", "brasileirão", "serie a brazil", "brazil - serie a"], rank: 60 },
+];
+
+function competitionPopularity(name?: string | null): number {
+  if (!name) return 0;
+  const n = name.toLowerCase();
+  for (const tier of COMPETITION_TIERS) {
+    if (tier.patterns.some((p) => n.includes(p))) return tier.rank;
+  }
+  return 10;
+}
+
 function IndexPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
