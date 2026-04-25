@@ -432,6 +432,64 @@ function TodaysPicksPanel({
   computed: number;
   onRefresh: () => void;
 }) {
+  const [pickQuery, setPickQuery] = useState("");
+  const [pickComp, setPickComp] = useState<string>("all");
+  const [pickMarket, setPickMarket] = useState<"all" | "1x2" | "ou_25" | "btts">("all");
+  const [minConf, setMinConf] = useState<number>(0);
+
+  const competitions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const name = r.match.competition?.name ?? "Other";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    let out = rows;
+    if (pickComp !== "all") {
+      out = out.filter((r) => (r.match.competition?.name ?? "Other") === pickComp);
+    }
+    if (pickMarket !== "all") {
+      out = out.filter((r) => r.best?.market === pickMarket);
+    }
+    if (minConf > 0) {
+      out = out.filter((r) => (r.best?.probability ?? 0) >= minConf);
+    }
+    if (pickQuery.trim()) {
+      const q = pickQuery.toLowerCase();
+      out = out.filter(
+        (r) =>
+          r.match.homeTeam.name.toLowerCase().includes(q) ||
+          r.match.awayTeam.name.toLowerCase().includes(q) ||
+          r.match.competition?.name?.toLowerCase().includes(q),
+      );
+    }
+    return out;
+  }, [rows, pickComp, pickMarket, minConf, pickQuery]);
+
+  const confSteps: { label: string; value: number }[] = [
+    { label: "Any", value: 0 },
+    { label: "≥ 50%", value: 50 },
+    { label: "≥ 60%", value: 60 },
+    { label: "≥ 70%", value: 70 },
+    { label: "≥ 80%", value: 80 },
+  ];
+
+  const markets: { label: string; value: typeof pickMarket }[] = [
+    { label: "All markets", value: "all" },
+    { label: "1X2", value: "1x2" },
+    { label: "O/U 2.5", value: "ou_25" },
+    { label: "BTTS", value: "btts" },
+  ];
+
+  const activeFilters =
+    (pickComp !== "all" ? 1 : 0) +
+    (pickMarket !== "all" ? 1 : 0) +
+    (minConf > 0 ? 1 : 0) +
+    (pickQuery.trim() ? 1 : 0);
+
   if (busy && rows.length === 0) {
     return (
       <div className="space-y-2">
@@ -460,7 +518,7 @@ function TodaysPicksPanel({
         <h2 className="font-display text-xl font-bold">Today's model probabilities</h2>
         <div className="h-px flex-1 bg-border/60" />
         <span className="font-mono text-xs text-muted-foreground">
-          {rows.length} {rows.length === 1 ? "match" : "matches"}
+          {filtered.length}/{rows.length} {rows.length === 1 ? "match" : "matches"}
           {computed > 0 && ` · ${computed} freshly computed`}
         </span>
         {missing > 0 && (
@@ -476,7 +534,116 @@ function TodaysPicksPanel({
           </Button>
         )}
       </div>
-      <PicksTable rows={rows} />
+
+      {/* Filters */}
+      <div className="mb-4 space-y-3 rounded-2xl border border-border/60 bg-secondary/30 p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={pickQuery}
+              onChange={(e) => setPickQuery(e.target.value)}
+              placeholder="Search team or league…"
+              className="pl-9"
+            />
+          </div>
+          {activeFilters > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setPickQuery("");
+                setPickComp("all");
+                setPickMarket("all");
+                setMinConf(0);
+              }}
+            >
+              Clear ({activeFilters})
+            </Button>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Market
+            </span>
+            <div className="-mx-1 flex flex-1 gap-1.5 overflow-x-auto px-1">
+              {markets.map((m) => (
+                <Button
+                  key={m.value}
+                  variant={pickMarket === m.value ? "default" : "secondary"}
+                  size="sm"
+                  onClick={() => setPickMarket(m.value)}
+                  className="shrink-0"
+                >
+                  {m.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Conf.
+            </span>
+            <div className="-mx-1 flex flex-1 gap-1.5 overflow-x-auto px-1">
+              {confSteps.map((c) => (
+                <Button
+                  key={c.value}
+                  variant={minConf === c.value ? "default" : "secondary"}
+                  size="sm"
+                  onClick={() => setMinConf(c.value)}
+                  className="shrink-0"
+                >
+                  {c.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {competitions.length > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                League
+              </span>
+              <div className="-mx-1 flex flex-1 gap-1.5 overflow-x-auto px-1">
+                <Button
+                  variant={pickComp === "all" ? "default" : "secondary"}
+                  size="sm"
+                  onClick={() => setPickComp("all")}
+                  className="shrink-0 gap-1.5"
+                >
+                  <Trophy className="h-3.5 w-3.5" />
+                  All
+                  <span className="font-mono text-[10px] opacity-70">{rows.length}</span>
+                </Button>
+                {competitions.map(([name, count]) => (
+                  <Button
+                    key={name}
+                    variant={pickComp === name ? "default" : "secondary"}
+                    size="sm"
+                    onClick={() => setPickComp(name)}
+                    className="shrink-0 gap-1.5"
+                  >
+                    {name}
+                    <span className="font-mono text-[10px] opacity-70">{count}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border/60 px-6 py-12 text-center">
+          <p className="font-display text-base font-semibold">No matches match your filters</p>
+          <p className="mt-1 text-sm text-muted-foreground">Try clearing some filters above.</p>
+        </div>
+      ) : (
+        <PicksTable rows={filtered} />
+      )}
     </div>
   );
 }
