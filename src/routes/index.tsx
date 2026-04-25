@@ -38,6 +38,7 @@ import {
   MessageSquare,
   ListChecks,
   User as UserIcon,
+  ArrowUpDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
