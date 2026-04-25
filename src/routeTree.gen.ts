@@ -13,7 +13,6 @@ import { Route as ValueRouteImport } from './routes/value'
 import { Route as TrackedRouteImport } from './routes/tracked'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as BankrollRouteImport } from './routes/bankroll'
-import { Route as AccumulatorRouteImport } from './routes/accumulator'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchMatchIdRouteImport } from './routes/match.$matchId'
 
@@ -37,11 +36,6 @@ const BankrollRoute = BankrollRouteImport.update({
   path: '/bankroll',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AccumulatorRoute = AccumulatorRouteImport.update({
-  id: '/accumulator',
-  path: '/accumulator',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -55,7 +49,6 @@ const MatchMatchIdRoute = MatchMatchIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/accumulator': typeof AccumulatorRoute
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
@@ -64,7 +57,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/accumulator': typeof AccumulatorRoute
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
@@ -74,7 +66,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/accumulator': typeof AccumulatorRoute
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
@@ -85,25 +76,16 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/accumulator'
     | '/bankroll'
     | '/login'
     | '/tracked'
     | '/value'
     | '/match/$matchId'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/accumulator'
-    | '/bankroll'
-    | '/login'
-    | '/tracked'
-    | '/value'
-    | '/match/$matchId'
+  to: '/' | '/bankroll' | '/login' | '/tracked' | '/value' | '/match/$matchId'
   id:
     | '__root__'
     | '/'
-    | '/accumulator'
     | '/bankroll'
     | '/login'
     | '/tracked'
@@ -113,7 +95,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AccumulatorRoute: typeof AccumulatorRoute
   BankrollRoute: typeof BankrollRoute
   LoginRoute: typeof LoginRoute
   TrackedRoute: typeof TrackedRoute
@@ -151,13 +132,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BankrollRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/accumulator': {
-      id: '/accumulator'
-      path: '/accumulator'
-      fullPath: '/accumulator'
-      preLoaderRoute: typeof AccumulatorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -177,7 +151,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AccumulatorRoute: AccumulatorRoute,
   BankrollRoute: BankrollRoute,
   LoginRoute: LoginRoute,
   TrackedRoute: TrackedRoute,
