@@ -14,6 +14,102 @@ export type Database = {
   }
   public: {
     Tables: {
+      bankroll_settings: {
+        Row: {
+          created_at: string
+          currency: string
+          current_bankroll: number
+          id: string
+          starting_bankroll: number
+          unit_size: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          current_bankroll?: number
+          id?: string
+          starting_bankroll?: number
+          unit_size?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          current_bankroll?: number
+          id?: string
+          starting_bankroll?: number
+          unit_size?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      bet_log: {
+        Row: {
+          away_team: string | null
+          competition: string | null
+          created_at: string
+          decimal_odds: number
+          home_team: string | null
+          id: string
+          market: string
+          match_id: number | null
+          model_probability: number | null
+          notes: string | null
+          profit: number
+          selection: string
+          stake: number
+          status: string
+          units: number
+          updated_at: string
+          user_id: string
+          utc_date: string | null
+        }
+        Insert: {
+          away_team?: string | null
+          competition?: string | null
+          created_at?: string
+          decimal_odds: number
+          home_team?: string | null
+          id?: string
+          market: string
+          match_id?: number | null
+          model_probability?: number | null
+          notes?: string | null
+          profit?: number
+          selection: string
+          stake: number
+          status?: string
+          units: number
+          updated_at?: string
+          user_id: string
+          utc_date?: string | null
+        }
+        Update: {
+          away_team?: string | null
+          competition?: string | null
+          created_at?: string
+          decimal_odds?: number
+          home_team?: string | null
+          id?: string
+          market?: string
+          match_id?: number | null
+          model_probability?: number | null
+          notes?: string | null
+          profit?: number
+          selection?: string
+          stake?: number
+          status?: string
+          units?: number
+          updated_at?: string
+          user_id?: string
+          utc_date?: string | null
+        }
+        Relationships: []
+      }
       match_odds: {
         Row: {
           bookmaker: string | null
