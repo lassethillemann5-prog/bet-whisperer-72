@@ -47,8 +47,7 @@ function IndexPage() {
   const [visible, setVisible] = useState<number>(24);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"fixtures" | "picks">("fixtures");
-  // Note: tab is now extended to include "coach" — kept loose to avoid type churn
+  const [tab, setTab] = useState<"fixtures" | "picks" | "coach">("fixtures");
   const [todayRows, setTodayRows] = useState<TodayPickRow[]>([]);
   const [todayBusy, setTodayBusy] = useState(false);
   const [todayMissing, setTodayMissing] = useState(0);
@@ -217,7 +216,7 @@ function IndexPage() {
     <AppShell>
       <Hero count={matches.length} days={DAYS_WINDOW} />
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks")} className="mb-6">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks" | "coach")} className="mb-6">
         <TabsList className="h-10 p-1">
           <TabsTrigger value="fixtures" className="gap-1.5">
             <Calendar className="h-3.5 w-3.5" />
@@ -232,6 +231,10 @@ function IndexPage() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="coach" className="gap-1.5">
+            <Bot className="h-3.5 w-3.5" />
+            AI Coach
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="picks" className="mt-6">
@@ -242,6 +245,10 @@ function IndexPage() {
             computed={todayComputed}
             onRefresh={loadTodayPredictions}
           />
+        </TabsContent>
+
+        <TabsContent value="coach" className="mt-6">
+          <CoachPanel />
         </TabsContent>
 
         <TabsContent value="fixtures" className="mt-6">
