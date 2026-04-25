@@ -3,19 +3,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
 import { MatchCard } from "@/components/app/MatchCard";
-import { getFixtures } from "@/server/football.functions";
+import { getFixtures, getTodayPredictions, type TodayPickRow } from "@/server/football.functions";
 import type { MatchSummary } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch, type TrackedRow } from "@/lib/football/tracked";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Link } from "@tanstack/react-router";
-import { getValuePicks, type ValuePick } from "@/server/valuePicks.functions";
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
   Flame,
+  RefreshCw,
   Search,
   Sparkles,
   Trophy,
@@ -39,8 +39,11 @@ function IndexPage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"fixtures" | "picks">("fixtures");
-  const [picks, setPicks] = useState<ValuePick[]>([]);
-  const [picksBusy, setPicksBusy] = useState(false);
+  const [todayRows, setTodayRows] = useState<TodayPickRow[]>([]);
+  const [todayBusy, setTodayBusy] = useState(false);
+  const [todayMissing, setTodayMissing] = useState(0);
+  const [todayComputed, setTodayComputed] = useState(0);
+  const [todayLoaded, setTodayLoaded] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -63,44 +66,40 @@ function IndexPage() {
     return () => { cancelled = true; };
   }, [user]);
 
-  // Load value picks for the "Today's picks" tab
+  const loadTodayPredictions = async () => {
+    setTodayBusy(true);
+    try {
+      const res = await getTodayPredictions({ data: { computeBudget: 8 } });
+      setTodayRows(res.rows);
+      setTodayMissing(res.missing);
+      setTodayComputed(res.computed);
+      setTodayLoaded(true);
+      if (res.error) toast.error(res.error);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load today's picks");
+    } finally {
+      setTodayBusy(false);
+    }
+  };
+
+  // Lazy-load today's predictions the first time the picks tab is opened
   useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    setPicksBusy(true);
-    getValuePicks({ data: { userId: user.id } })
-      .then((res) => {
-        if (cancelled) return;
-        setPicks(res.picks);
-      })
-      .catch(() => {})
-      .finally(() => !cancelled && setPicksBusy(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+    if (tab === "picks" && !todayLoaded && !todayBusy && user) {
+      void loadTodayPredictions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, todayLoaded, user]);
 
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
 
-  // Today's picks: best positive-edge pick per tracked match kicking off today
-  const todaysPicks = useMemo(() => {
-    const today = isoDay(new Date());
-    const byMatch = new Map<number, ValuePick[]>();
-    for (const p of picks) {
-      if (isoDay(new Date(p.utcDate)) !== today) continue;
-      if (p.edgePct <= 0) continue;
-      const arr = byMatch.get(p.matchId) ?? [];
-      arr.push(p);
-      byMatch.set(p.matchId, arr);
-    }
-    const rows: { match: ValuePick; alternates: number }[] = [];
-    for (const [, list] of byMatch) {
-      const sorted = [...list].sort((a, b) => b.modelProb - a.modelProb);
-      rows.push({ match: sorted[0], alternates: sorted.length - 1 });
-    }
-    rows.sort((a, b) => b.match.modelProb - a.match.modelProb);
-    return rows;
-  }, [picks]);
+  // Sort today's rows by best-pick probability descending (rows without
+  // predictions sink to the bottom).
+  const sortedTodayRows = useMemo(() => {
+    const withProb = todayRows.filter((r) => r.best);
+    const without = todayRows.filter((r) => !r.best);
+    withProb.sort((a, b) => (b.best?.probability ?? 0) - (a.best?.probability ?? 0));
+    return [...withProb, ...without];
+  }, [todayRows]);
 
   useEffect(() => {
     setVisible(24);
@@ -217,16 +216,22 @@ function IndexPage() {
           <TabsTrigger value="picks" className="gap-1.5">
             <Flame className="h-3.5 w-3.5" />
             Today's picks
-            {todaysPicks.length > 0 && (
+            {todayRows.length > 0 && (
               <span className="ml-1 rounded-md bg-primary/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
-                {todaysPicks.length}
+                {todayRows.length}
               </span>
             )}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="picks" className="mt-6">
-          <TodaysPicksPanel rows={todaysPicks} busy={picksBusy} />
+          <TodaysPicksPanel
+            rows={sortedTodayRows}
+            busy={todayBusy}
+            missing={todayMissing}
+            computed={todayComputed}
+            onRefresh={loadTodayPredictions}
+          />
         </TabsContent>
 
         <TabsContent value="fixtures" className="mt-6">
@@ -417,14 +422,20 @@ function EmptyState() {
 function TodaysPicksPanel({
   rows,
   busy,
+  missing,
+  computed,
+  onRefresh,
 }: {
-  rows: { match: ValuePick; alternates: number }[];
+  rows: TodayPickRow[];
   busy: boolean;
+  missing: number;
+  computed: number;
+  onRefresh: () => void;
 }) {
-  if (busy) {
+  if (busy && rows.length === 0) {
     return (
       <div className="space-y-2">
-        {Array.from({ length: 3 }).map((_, i) => (
+        {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
             className="h-20 animate-pulse rounded-2xl border border-border/60 bg-secondary/40"
@@ -436,102 +447,182 @@ function TodaysPicksPanel({
   if (rows.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border/60 px-6 py-16 text-center">
-        <p className="font-display text-lg font-semibold">No picks for today</p>
+        <p className="font-display text-lg font-semibold">No fixtures today</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Picks appear when a tracked match kicks off today and a bookmaker price beats our model
-          probability (positive edge).
+          Check back closer to kickoff, or browse upcoming days on the Fixtures tab.
         </p>
       </div>
     );
   }
   return (
     <div>
-      <div className="mb-3 flex items-center gap-3">
-        <h2 className="font-display text-xl font-bold">Today's edges</h2>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <h2 className="font-display text-xl font-bold">Today's model probabilities</h2>
         <div className="h-px flex-1 bg-border/60" />
         <span className="font-mono text-xs text-muted-foreground">
-          {rows.length} {rows.length === 1 ? "pick" : "picks"}
+          {rows.length} {rows.length === 1 ? "match" : "matches"}
+          {computed > 0 && ` · ${computed} freshly computed`}
         </span>
+        {missing > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onRefresh}
+            disabled={busy}
+            className="gap-1.5"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
+            Compute {Math.min(missing, 8)} more
+          </Button>
+        )}
       </div>
-      <div className="overflow-hidden rounded-2xl border border-border/60 card-elevated divide-y divide-border/50">
-        {rows.map(({ match, alternates }) => (
-          <PickListItem key={match.matchId} pick={match} alternates={alternates} />
+      <PicksTable rows={rows} />
+    </div>
+  );
+}
+
+function PicksTable({ rows }: { rows: TodayPickRow[] }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border/60 card-elevated">
+      {/* Desktop header */}
+      <div className="hidden md:grid grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr] items-center gap-3 border-b border-border/50 bg-secondary/30 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        <div>Time</div>
+        <div>Match</div>
+        <div className="text-center">1 · X · 2</div>
+        <div className="text-center">O/U 2.5</div>
+        <div className="text-center">BTTS</div>
+        <div className="text-center">Best pick</div>
+      </div>
+      <div className="divide-y divide-border/50">
+        {rows.map((row) => (
+          <PickTableRow key={row.match.id} row={row} />
         ))}
       </div>
     </div>
   );
 }
 
-function PickListItem({ pick, alternates }: { pick: ValuePick; alternates: number }) {
-  const date = new Date(pick.utcDate);
+function PickTableRow({ row }: { row: TodayPickRow }) {
+  const date = new Date(row.match.utcDate);
   const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  const tip = formatPickShort(pick);
+
   return (
     <Link
       to="/match/$matchId"
-      params={{ matchId: String(pick.matchId) }}
-      className="grid grid-cols-[60px_1fr_auto] items-center gap-3 px-4 py-4 transition hover:bg-primary/[0.04]"
+      params={{ matchId: String(row.match.id) }}
+      className="grid grid-cols-1 md:grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr] items-center gap-3 px-4 py-4 transition hover:bg-primary/[0.04]"
     >
-      <div className="flex flex-col items-center">
-        <div className="font-mono text-sm font-bold tabular-nums">{time}</div>
-        <div className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
+      {/* Time */}
+      <div className="flex md:flex-col md:items-start items-center justify-between gap-2">
+        <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
+        <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground md:mt-0.5">
           today
-        </div>
+        </span>
       </div>
+
+      {/* Match */}
       <div className="min-w-0">
-        {pick.competition && (
+        {row.match.competition?.name && (
           <div className="mb-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/80 truncate">
-            {pick.competition}
+            {row.match.competition.name}
           </div>
         )}
         <div className="truncate font-display text-sm font-semibold">
-          {pick.homeTeam} <span className="text-muted-foreground">vs</span> {pick.awayTeam}
-        </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="rounded bg-secondary/70 px-1.5 py-0.5 font-mono uppercase tracking-wider">
-            {pick.marketLabel}
-          </span>
-          {pick.bookmaker && <span className="truncate">@ {pick.bookmaker}</span>}
-          {alternates > 0 && (
-            <span className="font-mono text-[10px] text-muted-foreground/70">
-              +{alternates} more
-            </span>
-          )}
+          {row.match.homeTeam.shortName ?? row.match.homeTeam.name}
+          <span className="mx-2 text-muted-foreground">vs</span>
+          {row.match.awayTeam.shortName ?? row.match.awayTeam.name}
         </div>
       </div>
-      <div className="flex flex-col items-end gap-1">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            {tip}
-          </span>
-          <span className="rounded-md bg-primary px-2.5 py-1 font-mono text-xs font-bold tabular-nums text-primary-foreground">
-            {pick.decimalOdds.toFixed(2)}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums">
-          <span className="font-bold text-primary">
-            {(pick.modelProb * 100).toFixed(0)}% prob
-          </span>
-          <span className="text-muted-foreground">+{pick.edgePct.toFixed(1)}% edge</span>
-        </div>
+
+      {/* 1X2 */}
+      <div>
+        {row.oneXTwo ? (
+          <div className="grid grid-cols-3 gap-1">
+            <ProbCell label="1" value={row.oneXTwo.home} highlight={isMax(row.oneXTwo.home, [row.oneXTwo.home, row.oneXTwo.draw, row.oneXTwo.away])} />
+            <ProbCell label="X" value={row.oneXTwo.draw} highlight={isMax(row.oneXTwo.draw, [row.oneXTwo.home, row.oneXTwo.draw, row.oneXTwo.away])} />
+            <ProbCell label="2" value={row.oneXTwo.away} highlight={isMax(row.oneXTwo.away, [row.oneXTwo.home, row.oneXTwo.draw, row.oneXTwo.away])} />
+          </div>
+        ) : (
+          <PendingCell />
+        )}
+      </div>
+
+      {/* O/U 2.5 */}
+      <div>
+        {row.ou25 ? (
+          <div className="grid grid-cols-2 gap-1">
+            <ProbCell label="O" value={row.ou25.over} highlight={row.ou25.over >= row.ou25.under} />
+            <ProbCell label="U" value={row.ou25.under} highlight={row.ou25.under > row.ou25.over} />
+          </div>
+        ) : (
+          <PendingCell />
+        )}
+      </div>
+
+      {/* BTTS */}
+      <div>
+        {row.btts ? (
+          <div className="grid grid-cols-2 gap-1">
+            <ProbCell label="Y" value={row.btts.yes} highlight={row.btts.yes >= row.btts.no} />
+            <ProbCell label="N" value={row.btts.no} highlight={row.btts.no > row.btts.yes} />
+          </div>
+        ) : (
+          <PendingCell />
+        )}
+      </div>
+
+      {/* Best pick */}
+      <div className="flex justify-center">
+        {row.best ? (
+          <div className="flex flex-col items-center gap-0.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5">
+            <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-primary">
+              {row.best.label}
+            </span>
+            <span className="font-display text-base font-bold tabular-nums text-primary">
+              {row.best.probability.toFixed(0)}%
+            </span>
+          </div>
+        ) : (
+          <span className="font-mono text-[11px] text-muted-foreground/60">pending…</span>
+        )}
       </div>
     </Link>
   );
 }
 
-function formatPickShort(p: ValuePick): string {
-  if (p.market === "ou_25" || p.market === "ou_15") {
-    const line = p.market === "ou_25" ? "2.5" : "1.5";
-    const side = p.selection.toLowerCase().startsWith("o") ? "O" : "U";
-    return `${side}${line}`;
-  }
-  if (p.market === "btts") {
-    return `GG ${p.selection.toLowerCase().startsWith("y") ? "YES" : "NO"}`;
-  }
-  if (p.market === "1x2") {
-    return p.selection === "1" ? "Home" : p.selection === "2" ? "Away" : "Draw";
-  }
-  return p.selection;
+function ProbCell({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  highlight: boolean;
+}) {
+  return (
+    <div
+      className={`flex flex-col items-center rounded-md px-1 py-1 ${
+        highlight ? "bg-primary/15 text-primary" : "bg-secondary/50 text-foreground/70"
+      }`}
+    >
+      <span className="font-mono text-[9px] uppercase tracking-wider opacity-80">{label}</span>
+      <span className="font-mono text-xs font-bold tabular-nums">{value.toFixed(0)}%</span>
+    </div>
+  );
+}
+
+function isMax(v: number, all: number[]): boolean {
+  return v >= Math.max(...all) && v > 0;
+}
+
+function PendingCell() {
+  return (
+    <div className="flex items-center justify-center rounded-md bg-secondary/40 px-2 py-2">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+        pending
+      </span>
+    </div>
+  );
 }
 
 function isoDay(d: Date): string {
