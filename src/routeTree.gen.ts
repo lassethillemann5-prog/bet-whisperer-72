@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TrackedRouteImport } from './routes/tracked'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as BankrollRouteImport } from './routes/bankroll'
-import { Route as AccuracyRouteImport } from './routes/accuracy'
 import { Route as AccumulatorRouteImport } from './routes/accumulator'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchMatchIdRouteImport } from './routes/match.$matchId'
@@ -30,11 +29,6 @@ const LoginRoute = LoginRouteImport.update({
 const BankrollRoute = BankrollRouteImport.update({
   id: '/bankroll',
   path: '/bankroll',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AccuracyRoute = AccuracyRouteImport.update({
-  id: '/accuracy',
-  path: '/accuracy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AccumulatorRoute = AccumulatorRouteImport.update({
@@ -56,7 +50,6 @@ const MatchMatchIdRoute = MatchMatchIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/accumulator': typeof AccumulatorRoute
-  '/accuracy': typeof AccuracyRoute
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
@@ -65,7 +58,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/accumulator': typeof AccumulatorRoute
-  '/accuracy': typeof AccuracyRoute
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
@@ -75,7 +67,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/accumulator': typeof AccumulatorRoute
-  '/accuracy': typeof AccuracyRoute
   '/bankroll': typeof BankrollRoute
   '/login': typeof LoginRoute
   '/tracked': typeof TrackedRoute
@@ -86,7 +77,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/accumulator'
-    | '/accuracy'
     | '/bankroll'
     | '/login'
     | '/tracked'
@@ -95,7 +85,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/accumulator'
-    | '/accuracy'
     | '/bankroll'
     | '/login'
     | '/tracked'
@@ -104,7 +93,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/accumulator'
-    | '/accuracy'
     | '/bankroll'
     | '/login'
     | '/tracked'
@@ -114,7 +102,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccumulatorRoute: typeof AccumulatorRoute
-  AccuracyRoute: typeof AccuracyRoute
   BankrollRoute: typeof BankrollRoute
   LoginRoute: typeof LoginRoute
   TrackedRoute: typeof TrackedRoute
@@ -144,13 +131,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BankrollRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/accuracy': {
-      id: '/accuracy'
-      path: '/accuracy'
-      fullPath: '/accuracy'
-      preLoaderRoute: typeof AccuracyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/accumulator': {
       id: '/accumulator'
       path: '/accumulator'
@@ -178,7 +158,6 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccumulatorRoute: AccumulatorRoute,
-  AccuracyRoute: AccuracyRoute,
   BankrollRoute: BankrollRoute,
   LoginRoute: LoginRoute,
   TrackedRoute: TrackedRoute,
