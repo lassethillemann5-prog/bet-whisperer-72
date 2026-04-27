@@ -8,15 +8,45 @@ function poisson(k: number, lambda: number): number {
   return Math.exp(logP);
 }
 
-/** Build a goal scoreline matrix up to maxGoals each side */
+/**
+ * Dixon-Coles low-score correction τ(x, y, λ, μ, ρ).
+ * Reduces the over-prediction of 0-0 / 1-1 and under-prediction of 1-0 / 0-1
+ * caused by assuming home & away goals are independent Poisson variables.
+ * Reference: Dixon & Coles 1997, "Modelling Association Football Scores".
+ *   ρ ∈ ~[-0.2, 0.2]; we use a mild ρ = 0.08 which fits most leagues.
+ */
+const DC_RHO = 0.08;
+function dcTau(x: number, y: number, lh: number, la: number, rho = DC_RHO): number {
+  if (x === 0 && y === 0) return 1 - lh * la * rho;
+  if (x === 0 && y === 1) return 1 + lh * rho;
+  if (x === 1 && y === 0) return 1 + la * rho;
+  if (x === 1 && y === 1) return 1 - rho;
+  return 1;
+}
+
+/** Build a Dixon-Coles-corrected scoreline matrix up to maxGoals each side. */
 function buildMatrix(lambdaHome: number, lambdaAway: number, maxGoals = 7) {
   const m: number[][] = [];
+  let total = 0;
   for (let h = 0; h <= maxGoals; h++) {
     const row: number[] = [];
     for (let a = 0; a <= maxGoals; a++) {
-      row.push(poisson(h, lambdaHome) * poisson(a, lambdaAway));
+      const p =
+        poisson(h, lambdaHome) *
+        poisson(a, lambdaAway) *
+        dcTau(h, a, lambdaHome, lambdaAway);
+      row.push(p);
+      total += p;
     }
     m.push(row);
+  }
+  // Renormalise — DC correction nudges the total mass off 1.
+  if (total > 0 && Math.abs(total - 1) > 1e-9) {
+    for (let h = 0; h < m.length; h++) {
+      for (let a = 0; a < m[h].length; a++) {
+        m[h][a] /= total;
+      }
+    }
   }
   return m;
 }
@@ -29,10 +59,17 @@ function formStrength(form: TeamForm | null): {
   if (!form || form.played === 0) {
     return { attackPerGame: 1.35, defensePerGame: 1.35, reliability: 0 };
   }
+  // Prefer time-decay weighted stats when available (recent matches matter more).
+  const attack =
+    form.weightedAttackPerGame ?? form.goalsFor / form.played;
+  const defense =
+    form.weightedDefensePerGame ?? form.goalsAgainst / form.played;
+  // Effective sample after weighting — caps reliability when most evidence is old.
+  const eff = form.effectiveSample ?? form.played;
   return {
-    attackPerGame: form.goalsFor / form.played,
-    defensePerGame: form.goalsAgainst / form.played,
-    reliability: Math.min(1, form.played / 8),
+    attackPerGame: attack,
+    defensePerGame: defense,
+    reliability: Math.min(1, eff / 8),
   };
 }
 
