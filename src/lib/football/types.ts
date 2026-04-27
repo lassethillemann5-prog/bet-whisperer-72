@@ -6,6 +6,7 @@ export type MarketKey =
   | "corners"
   | "shots"
   | "shots_on_target"
+  | "cards"
   | "double_chance"
   | "dnb"
   | "ah"
