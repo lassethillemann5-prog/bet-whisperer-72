@@ -16,6 +16,7 @@ import {
   type BuilderLegId,
 } from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
+import { generateAiBetBuilder, type RiskLevel } from "./aiBetBuilder.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
 import { createClient } from "@supabase/supabase-js";
 
@@ -1643,6 +1644,134 @@ export const getBetBuilder = createServerFn({ method: "POST" })
         fairOdds: null,
         conflicts: [],
         error: e instanceof Error ? e.message : "Failed to build bet",
+      };
+    }
+  });
+
+export interface AiBetBuilderResponse {
+  legs: BuilderLegId[];
+  rationale: string;
+  jointProbability: number | null;
+  fairOdds: number | null;
+  conflicts: BuilderLegId[];
+  legProbabilities: Record<BuilderLegId, number> | null;
+  error: string | null;
+}
+
+export const getAiBetBuilder = createServerFn({ method: "POST" })
+  .inputValidator((input: { matchId: number; riskLevel: RiskLevel }) => input)
+  .handler(async ({ data }): Promise<AiBetBuilderResponse> => {
+    try {
+      const supabase = adminClient();
+      const matchId = Number(data.matchId);
+      const riskLevel: RiskLevel = data.riskLevel ?? "balanced";
+
+      const { data: cached } = await supabase
+        .from("predictions_cache")
+        .select("payload")
+        .eq("match_id", matchId)
+        .maybeSingle();
+
+      if (!cached?.payload) {
+        return {
+          legs: [],
+          rationale: "",
+          jointProbability: null,
+          fairOdds: null,
+          conflicts: [],
+          legProbabilities: null,
+          error: "No predictions for this match yet. Open the match once to generate them.",
+        };
+      }
+
+      const payload = cached.payload as unknown as {
+        match: MatchSummary;
+        predictions: MatchPredictions;
+      };
+
+      if (!payload.predictions.homeForm || !payload.predictions.awayForm) {
+        return {
+          legs: [],
+          rationale: "",
+          jointProbability: null,
+          fairOdds: null,
+          conflicts: [],
+          legProbabilities: null,
+          error: "Not enough form data to build a bet for this match.",
+        };
+      }
+
+      const { matrix } = buildScorelineMatrix(
+        payload.predictions.homeForm,
+        payload.predictions.awayForm,
+        payload.predictions.homeInjuries ?? null,
+        payload.predictions.awayInjuries ?? null,
+      );
+      const legProbabilities = legProbabilitiesFromMatrix(matrix);
+
+      const ai = await generateAiBetBuilder({
+        homeTeam: payload.match.homeTeam.name,
+        awayTeam: payload.match.awayTeam.name,
+        competition: payload.match.competition?.name ?? null,
+        expectedGoalsHome: payload.predictions.expectedGoalsHome,
+        expectedGoalsAway: payload.predictions.expectedGoalsAway,
+        legProbabilities,
+        riskLevel,
+      });
+
+      if (ai.error || ai.legs.length < 2) {
+        return {
+          legs: [],
+          rationale: ai.rationale,
+          jointProbability: null,
+          fairOdds: null,
+          conflicts: [],
+          legProbabilities,
+          error: ai.error ?? "AI returned no usable selection.",
+        };
+      }
+
+      // Drop any legs that produce zero joint probability (defensive).
+      const safeLegs: BuilderLegId[] = [];
+      for (const leg of ai.legs) {
+        const candidate = [...safeLegs, leg];
+        if (jointProbability(matrix, candidate) > 1e-9) safeLegs.push(leg);
+      }
+      if (safeLegs.length < 2) {
+        return {
+          legs: [],
+          rationale: ai.rationale,
+          jointProbability: null,
+          fairOdds: null,
+          conflicts: [],
+          legProbabilities,
+          error: "AI selection conflicted — please retry.",
+        };
+      }
+
+      const conflictsSet = conflictingLegs(matrix, safeLegs);
+      const joint = jointProbability(matrix, safeLegs);
+      const fairOdds = joint > 1e-9 ? +(1 / joint).toFixed(2) : null;
+
+      return {
+        legs: safeLegs,
+        rationale: ai.rationale,
+        jointProbability: joint,
+        fairOdds,
+        conflicts: Array.from(conflictsSet),
+        legProbabilities,
+        error: null,
+      };
+    } catch (e) {
+      console.error("getAiBetBuilder failed", e);
+      return {
+        legs: [],
+        rationale: "",
+        jointProbability: null,
+        fairOdds: null,
+        conflicts: [],
+        legProbabilities: null,
+        error: e instanceof Error ? e.message : "AI generator failed",
       };
     }
   });
