@@ -244,6 +244,7 @@ export interface TodayPickRow {
   ah: { line: number; homeLabel: string; awayLabel: string; home: number; away: number; pick: string } | null;
   homeToScore: { yes: number; no: number; pick: string } | null;
   awayToScore: { yes: number; no: number; pick: string } | null;
+  cards: { line: number; over: number; under: number; pick: string; expected: number } | null;
   best: { market: string; selection: string; label: string; probability: number } | null;
   cached: boolean;
   /** True when the prediction is just a league-average fallback (no real form data). */
@@ -259,6 +260,7 @@ function extractMarkets(predictions: MatchPredictions): {
   ah: TodayPickRow["ah"];
   homeToScore: TodayPickRow["homeToScore"];
   awayToScore: TodayPickRow["awayToScore"];
+  cards: TodayPickRow["cards"];
   best: TodayPickRow["best"];
 } {
   const m1x2 = predictions.markets.find((m) => m.market === "1x2");
@@ -269,6 +271,7 @@ function extractMarkets(predictions: MatchPredictions): {
   const mah = predictions.markets.find((m) => m.market === "ah");
   const mhts = predictions.markets.find((m) => m.market === "home_to_score");
   const mats = predictions.markets.find((m) => m.market === "away_to_score");
+  const mcards = predictions.markets.find((m) => m.market === "cards");
 
   const oneXTwo = m1x2
     ? {
@@ -330,6 +333,15 @@ function extractMarkets(predictions: MatchPredictions): {
   const awayToScore = mats
     ? { yes: mats.probabilities["Yes"] ?? 0, no: mats.probabilities["No"] ?? 0, pick: mats.pick }
     : null;
+  const cards = mcards
+    ? {
+        line: typeof mcards.line === "number" ? mcards.line : 3.5,
+        over: mcards.probabilities["Over 3.5"] ?? 0,
+        under: mcards.probabilities["Under 3.5"] ?? 0,
+        pick: mcards.pick,
+        expected: typeof mcards.expected === "number" ? mcards.expected : 0,
+      }
+    : null;
 
   // Best: highest single-selection probability across these 3 markets
   const candidates: { market: string; selection: string; label: string; probability: number }[] = [];
@@ -355,7 +367,7 @@ function extractMarkets(predictions: MatchPredictions): {
   candidates.sort((a, b) => b.probability - a.probability);
   const best = candidates[0] ?? null;
 
-  return { oneXTwo, ou25, btts, doubleChance, dnb, ah, homeToScore, awayToScore, best };
+  return { oneXTwo, ou25, btts, doubleChance, dnb, ah, homeToScore, awayToScore, cards, best };
 }
 
 /**
