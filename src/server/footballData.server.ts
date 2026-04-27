@@ -443,3 +443,38 @@ export async function fetchTeamInjuries(teamId: number): Promise<InjuryImpact | 
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Live in-play scores
+// ---------------------------------------------------------------------------
+
+export interface LiveScore {
+  id: number;
+  status: string; // "1H" | "HT" | "2H" | "ET" | "P" | "FT" | …
+  minute: number | null; // elapsed minutes when in-play
+  home: number | null;
+  away: number | null;
+}
+
+const LIVE_TTL_MS = 25_000; // dedupe concurrent callers within 25s
+
+let liveCache: { at: number; data: LiveScore[] } | null = null;
+
+export async function fetchLiveScores(): Promise<LiveScore[]> {
+  if (liveCache && Date.now() - liveCache.at < LIVE_TTL_MS) return liveCache.data;
+  try {
+    const data = await fdFetch<{ response: ApiSportsFixture[] }>(`/fixtures?live=all`);
+    const out: LiveScore[] = (data.response ?? []).map((f) => ({
+      id: f.fixture.id,
+      status: f.fixture.status.short,
+      minute: typeof f.fixture.status.elapsed === "number" ? f.fixture.status.elapsed : null,
+      home: f.goals?.home ?? null,
+      away: f.goals?.away ?? null,
+    }));
+    liveCache = { at: Date.now(), data: out };
+    return out;
+  } catch (e) {
+    console.warn("fetchLiveScores failed", e);
+    return liveCache?.data ?? [];
+  }
+}
