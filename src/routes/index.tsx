@@ -1284,6 +1284,16 @@ function PendingCell() {
   );
 }
 
+function NoDataCell() {
+  return (
+    <div className="flex items-center justify-center rounded-md border border-dashed border-border/40 bg-background/30 px-2 py-2">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/40">
+        —
+      </span>
+    </div>
+  );
+}
+
 function isoDay(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
