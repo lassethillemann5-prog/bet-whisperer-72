@@ -262,6 +262,63 @@ function extractMarkets(predictions: MatchPredictions): {
 }
 
 /**
+ * Build candidate selections for the "extended" markets (Double Chance, Draw
+ * No Bet, Asian Handicap) directly from MatchPredictions.markets. The AH
+ * market has dynamic selection labels (line varies per match), so we read
+ * straight from the market entry.
+ */
+function extendedCandidates(
+  predictions: MatchPredictions,
+  base: { matchId: number; homeTeam: string; awayTeam: string; competition: string | null; kickoff: string },
+  market: CoachMarket,
+): Array<{
+  matchId: number;
+  homeTeam: string;
+  awayTeam: string;
+  competition: string | null;
+  kickoff: string;
+  market: string;
+  marketLabel: string;
+  selection: string;
+  selectionLabel: string;
+  probability: number;
+}> {
+  const out: ReturnType<typeof extendedCandidates> = [];
+  const findM = (m: string) => predictions.markets.find((x) => x.market === m);
+
+  if (market === "any" || market === "double_chance") {
+    const dc = findM("double_chance");
+    if (dc) {
+      for (const [sel, prob] of Object.entries(dc.probabilities)) {
+        const label =
+          sel === "1X" ? "Home or Draw (1X)"
+          : sel === "12" ? "Home or Away (12)"
+          : "Draw or Away (X2)";
+        out.push({ ...base, market: "double_chance", marketLabel: "Double Chance", selection: sel, selectionLabel: label, probability: prob });
+      }
+    }
+  }
+  if (market === "any" || market === "dnb") {
+    const dnb = findM("dnb");
+    if (dnb) {
+      for (const [sel, prob] of Object.entries(dnb.probabilities)) {
+        const label = sel === "Home" ? `${base.homeTeam} (DNB)` : `${base.awayTeam} (DNB)`;
+        out.push({ ...base, market: "dnb", marketLabel: "Draw No Bet", selection: sel, selectionLabel: label, probability: prob });
+      }
+    }
+  }
+  if (market === "any" || market === "ah") {
+    const ah = findM("ah");
+    if (ah) {
+      for (const [sel, prob] of Object.entries(ah.probabilities)) {
+        out.push({ ...base, market: "ah", marketLabel: "Asian Handicap", selection: sel, selectionLabel: sel, probability: prob });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Returns predictions for every fixture happening "today" (UTC day).
  * Uses cached predictions when available; computes up to `computeBudget`
  * missing ones on-demand to avoid hammering the API.
