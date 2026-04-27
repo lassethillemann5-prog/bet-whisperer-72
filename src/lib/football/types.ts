@@ -5,7 +5,10 @@ export type MarketKey =
   | "btts"
   | "corners"
   | "shots"
-  | "shots_on_target";
+  | "shots_on_target"
+  | "double_chance"
+  | "dnb"
+  | "ah";
 
 export interface TeamForm {
   played: number;
@@ -32,6 +35,23 @@ export interface TeamForm {
    */
   weightedXgForPerGame?: number;
   weightedXgAgainstPerGame?: number;
+}
+
+/**
+ * Injury-impact summary for a team. Computed in `fetchTeamInjuries` from
+ * API-Sports `/injuries` endpoint. We translate the count of out / doubtful
+ * key players into a small attack/defense penalty applied to λ in the
+ * predictor.
+ */
+export interface InjuryImpact {
+  /** Number of players currently flagged out for this fixture (or upcoming). */
+  out: number;
+  /** Names of the most notable absentees (cap 5, for UI). */
+  notable: string[];
+  /** Multiplicative penalty on attacking λ (0.85..1.0). */
+  attackFactor: number;
+  /** Multiplicative penalty on defensive λ (1.0..1.18 = concedes more). */
+  defenseFactor: number;
 }
 
 export interface MatchSummary {
