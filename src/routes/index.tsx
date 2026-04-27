@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
 import { MatchCard } from "@/components/app/MatchCard";
@@ -44,15 +44,8 @@ import {
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
 import { tierLabel, unitsForProbability } from "@/lib/football/bankroll";
-import { useLiveScores, type LiveScoreLite } from "@/lib/football/useLiveScores";
+import { useLiveScores, useLiveScore as useLive, LiveScoresContext } from "@/lib/football/useLiveScores";
 import { LiveBadge, LiveScoreLine } from "@/components/app/LiveBadge";
-
-// Context lets the whole fixtures/picks tree read live scores without
-// threading a Map through every prop.
-const LiveScoresContext = createContext<Map<number, LiveScoreLite>>(new Map());
-function useLive(matchId: number): LiveScoreLite | undefined {
-  return useContext(LiveScoresContext).get(matchId);
-}
 
 export const Route = createFileRoute("/")({
   component: IndexPage,
