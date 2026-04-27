@@ -29,7 +29,7 @@ interface ApiSportsFixture {
   fixture: {
     id: number;
     date: string;
-    status: { short: string; long: string };
+    status: { short: string; long: string; elapsed?: number | null };
   };
   league: { name: string; logo?: string | null; id?: number; country?: string };
   teams: {
