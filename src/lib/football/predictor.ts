@@ -291,6 +291,26 @@ export function predictMarkets(
       },
     },
     {
+      market: "home_to_score",
+      label: "Home Team to Score (Over 0.5)",
+      line: 0.5,
+      pick: homeScoresYes >= 0.5 ? "Yes" : "No",
+      probabilities: {
+        Yes: +(homeScoresYes * 100).toFixed(1),
+        No: +((1 - homeScoresYes) * 100).toFixed(1),
+      },
+    },
+    {
+      market: "away_to_score",
+      label: "Away Team to Score (Over 0.5)",
+      line: 0.5,
+      pick: awayScoresYes >= 0.5 ? "Yes" : "No",
+      probabilities: {
+        Yes: +(awayScoresYes * 100).toFixed(1),
+        No: +((1 - awayScoresYes) * 100).toFixed(1),
+      },
+    },
+    {
       market: "double_chance",
       label: "Double Chance",
       pick:
