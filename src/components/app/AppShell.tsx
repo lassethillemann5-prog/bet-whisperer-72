@@ -1,7 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { LogOut, Activity, Star, LayoutGrid, Wallet, Layers, Target } from "lucide-react";
+import { LogOut, Activity, Star, LayoutGrid, Wallet, Layers } from "lucide-react";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOut, loading } = useAuth();
@@ -46,7 +46,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {navItem("/tracked", "Tracked", Star)}
             {navItem("/accumulator", "Accumulator", Layers)}
             {navItem("/bankroll", "Bankroll", Wallet)}
-            {navItem("/accuracy", "Accuracy", Target)}
           </nav>
 
           <div className="flex items-center gap-2">
@@ -78,7 +77,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {navItem("/tracked", "Tracked", Star)}
           {navItem("/accumulator", "Accumulator", Layers)}
           {navItem("/bankroll", "Bankroll", Wallet)}
-          {navItem("/accuracy", "Accuracy", Target)}
         </div>
       </header>
 
