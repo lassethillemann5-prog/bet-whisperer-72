@@ -26,6 +26,7 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Flame,
   RefreshCw,
   Search,
@@ -981,13 +982,14 @@ function PicksTable({ rows }: { rows: TodayPickRow[] }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-border/60 card-elevated">
       {/* Desktop header */}
-      <div className="hidden md:grid grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr] items-center gap-3 border-b border-border/50 bg-secondary/30 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+      <div className="hidden md:grid grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 border-b border-border/50 bg-secondary/30 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
         <div>Time</div>
         <div>Match</div>
         <div className="text-center">1 · X · 2</div>
         <div className="text-center">O/U 2.5</div>
         <div className="text-center">BTTS</div>
         <div className="text-center">Best pick</div>
+        <div />
       </div>
       <div className="divide-y divide-border/50">
         {rows.map((row) => (
@@ -1001,13 +1003,18 @@ function PicksTable({ rows }: { rows: TodayPickRow[] }) {
 function PickTableRow({ row }: { row: TodayPickRow }) {
   const date = new Date(row.match.utcDate);
   const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const [expanded, setExpanded] = useState(false);
+  const hasExtras =
+    !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore);
 
   return (
-    <Link
-      to="/match/$matchId"
-      params={{ matchId: String(row.match.id) }}
-      className="grid grid-cols-1 md:grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr] items-center gap-3 px-4 py-4 transition hover:bg-primary/[0.04]"
-    >
+    <div className="transition hover:bg-primary/[0.04]">
+      <div className="grid grid-cols-1 md:grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 px-4 py-4">
+        <Link
+          to="/match/$matchId"
+          params={{ matchId: String(row.match.id) }}
+          className="contents"
+        >
       {/* Time */}
       <div className="flex md:flex-col md:items-start items-center justify-between gap-2">
         <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
@@ -1082,7 +1089,143 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
           <span className="font-mono text-[11px] text-muted-foreground/60">pending…</span>
         )}
       </div>
-    </Link>
+        </Link>
+
+        {/* Expand toggle */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          disabled={!hasExtras}
+          aria-label={expanded ? "Hide more markets" : "Show more markets"}
+          aria-expanded={expanded}
+          className="hidden md:flex h-8 w-8 items-center justify-center justify-self-end rounded-md border border-border/60 text-muted-foreground transition hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+        </button>
+      </div>
+
+      {/* Mobile: show a compact "More" toggle below the row */}
+      {hasExtras && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="md:hidden flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:bg-primary/5 hover:text-primary"
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+          {expanded ? "Hide more markets" : "More markets"}
+        </button>
+      )}
+
+      {expanded && hasExtras && <ExtraMarketsPanel row={row} />}
+    </div>
+  );
+}
+
+function ExtraMarketsPanel({ row }: { row: TodayPickRow }) {
+  return (
+    <div className="border-t border-border/40 bg-secondary/20 px-4 py-3">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+        {row.doubleChance && (
+          <ExtraMarketCard
+            title="Double Chance"
+            pick={row.doubleChance.pick}
+            entries={[
+              ["1X", row.doubleChance.oneX],
+              ["12", row.doubleChance.twelve],
+              ["X2", row.doubleChance.xTwo],
+            ]}
+          />
+        )}
+        {row.dnb && (
+          <ExtraMarketCard
+            title="Draw No Bet"
+            pick={row.dnb.pick}
+            entries={[
+              ["Home", row.dnb.home],
+              ["Away", row.dnb.away],
+            ]}
+          />
+        )}
+        {row.ah && (
+          <ExtraMarketCard
+            title={`Asian Handicap`}
+            pick={row.ah.pick}
+            entries={[
+              [row.ah.homeLabel, row.ah.home],
+              [row.ah.awayLabel, row.ah.away],
+            ]}
+          />
+        )}
+        {row.homeToScore && (
+          <ExtraMarketCard
+            title="Home to Score"
+            pick={row.homeToScore.pick}
+            entries={[
+              ["Yes", row.homeToScore.yes],
+              ["No", row.homeToScore.no],
+            ]}
+          />
+        )}
+        {row.awayToScore && (
+          <ExtraMarketCard
+            title="Away to Score"
+            pick={row.awayToScore.pick}
+            entries={[
+              ["Yes", row.awayToScore.yes],
+              ["No", row.awayToScore.no],
+            ]}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExtraMarketCard({
+  title,
+  pick,
+  entries,
+}: {
+  title: string;
+  pick: string;
+  entries: [string, number][];
+}) {
+  const max = Math.max(...entries.map(([, v]) => v));
+  return (
+    <div className="rounded-lg border border-border/50 bg-background/40 p-2.5">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
+          {title}
+        </span>
+      </div>
+      <div className="mb-1.5 truncate font-mono text-[10px] uppercase tracking-[0.12em] text-primary">
+        {pick}
+      </div>
+      <div className="space-y-1">
+        {entries.map(([k, v]) => {
+          const hi = v === max && v > 0;
+          return (
+            <div
+              key={k}
+              className={`flex items-center justify-between rounded px-1.5 py-0.5 text-[11px] ${
+                hi ? "bg-primary/10 text-primary" : "text-foreground/70"
+              }`}
+            >
+              <span className="truncate font-mono uppercase tracking-wider">{k}</span>
+              <span className="font-mono font-bold tabular-nums">{v.toFixed(0)}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

@@ -229,6 +229,12 @@ export interface TodayPickRow {
   oneXTwo: { home: number; draw: number; away: number; pick: string } | null;
   ou25: { over: number; under: number; pick: string } | null;
   btts: { yes: number; no: number; pick: string } | null;
+  // Extended markets — shown in a collapsed "More markets" row.
+  doubleChance: { oneX: number; twelve: number; xTwo: number; pick: string } | null;
+  dnb: { home: number; away: number; pick: string } | null;
+  ah: { line: number; homeLabel: string; awayLabel: string; home: number; away: number; pick: string } | null;
+  homeToScore: { yes: number; no: number; pick: string } | null;
+  awayToScore: { yes: number; no: number; pick: string } | null;
   best: { market: string; selection: string; label: string; probability: number } | null;
   cached: boolean;
 }
@@ -237,11 +243,21 @@ function extractMarkets(predictions: MatchPredictions): {
   oneXTwo: TodayPickRow["oneXTwo"];
   ou25: TodayPickRow["ou25"];
   btts: TodayPickRow["btts"];
+  doubleChance: TodayPickRow["doubleChance"];
+  dnb: TodayPickRow["dnb"];
+  ah: TodayPickRow["ah"];
+  homeToScore: TodayPickRow["homeToScore"];
+  awayToScore: TodayPickRow["awayToScore"];
   best: TodayPickRow["best"];
 } {
   const m1x2 = predictions.markets.find((m) => m.market === "1x2");
   const mou25 = predictions.markets.find((m) => m.market === "ou_25");
   const mbtts = predictions.markets.find((m) => m.market === "btts");
+  const mdc = predictions.markets.find((m) => m.market === "double_chance");
+  const mdnb = predictions.markets.find((m) => m.market === "dnb");
+  const mah = predictions.markets.find((m) => m.market === "ah");
+  const mhts = predictions.markets.find((m) => m.market === "home_to_score");
+  const mats = predictions.markets.find((m) => m.market === "away_to_score");
 
   const oneXTwo = m1x2
     ? {
@@ -264,6 +280,44 @@ function extractMarkets(predictions: MatchPredictions): {
         no: mbtts.probabilities["No"] ?? 0,
         pick: mbtts.pick,
       }
+    : null;
+
+  const doubleChance = mdc
+    ? {
+        oneX: mdc.probabilities["1X"] ?? 0,
+        twelve: mdc.probabilities["12"] ?? 0,
+        xTwo: mdc.probabilities["X2"] ?? 0,
+        pick: mdc.pick,
+      }
+    : null;
+  const dnb = mdnb
+    ? {
+        home: mdnb.probabilities["Home"] ?? 0,
+        away: mdnb.probabilities["Away"] ?? 0,
+        pick: mdnb.pick,
+      }
+    : null;
+  let ah: TodayPickRow["ah"] = null;
+  if (mah) {
+    const entries = Object.entries(mah.probabilities);
+    const homeEntry = entries.find(([k]) => k.startsWith("Home"));
+    const awayEntry = entries.find(([k]) => k.startsWith("Away"));
+    if (homeEntry && awayEntry) {
+      ah = {
+        line: typeof mah.line === "number" ? mah.line : 0,
+        homeLabel: homeEntry[0],
+        awayLabel: awayEntry[0],
+        home: homeEntry[1] ?? 0,
+        away: awayEntry[1] ?? 0,
+        pick: mah.pick,
+      };
+    }
+  }
+  const homeToScore = mhts
+    ? { yes: mhts.probabilities["Yes"] ?? 0, no: mhts.probabilities["No"] ?? 0, pick: mhts.pick }
+    : null;
+  const awayToScore = mats
+    ? { yes: mats.probabilities["Yes"] ?? 0, no: mats.probabilities["No"] ?? 0, pick: mats.pick }
     : null;
 
   // Best: highest single-selection probability across these 3 markets
@@ -290,7 +344,7 @@ function extractMarkets(predictions: MatchPredictions): {
   candidates.sort((a, b) => b.probability - a.probability);
   const best = candidates[0] ?? null;
 
-  return { oneXTwo, ou25, btts, best };
+  return { oneXTwo, ou25, btts, doubleChance, dnb, ah, homeToScore, awayToScore, best };
 }
 
 /**
@@ -470,6 +524,11 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
             oneXTwo: null,
             ou25: null,
             btts: null,
+            doubleChance: null,
+            dnb: null,
+            ah: null,
+            homeToScore: null,
+            awayToScore: null,
             best: null,
             cached: false,
           };
