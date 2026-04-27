@@ -6,8 +6,8 @@ import {
   fetchTeamForm,
   fetchTeamInjuries,
   fetchUpcomingMatches,
+  fetchFinishedFixtures,
 } from "./footballData.server";
-import { fetchFinishedFixtures } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
 import {
   buildScorelineMatrix,
