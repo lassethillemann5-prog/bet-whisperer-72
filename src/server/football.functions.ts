@@ -624,6 +624,7 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
         }
+        candidates.push(...extendedCandidates(cached.predictions, base, market));
       }
 
       // 4. Filter by min probability, sort, take top N (one per match wins out)
@@ -1159,6 +1160,7 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
         }
+        candidates.push(...extendedCandidates(cached.predictions, base, market));
       }
 
       // Filter by probability floor, keep best per (match,market) so we don't
