@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TrackedRouteImport } from './routes/tracked'
+import { Route as StatsRouteImport } from './routes/stats'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as BuilderRouteImport } from './routes/builder'
 import { Route as BankrollRouteImport } from './routes/bankroll'
@@ -20,6 +21,11 @@ import { Route as MatchMatchIdRouteImport } from './routes/match.$matchId'
 const TrackedRoute = TrackedRouteImport.update({
   id: '/tracked',
   path: '/tracked',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatsRoute = StatsRouteImport.update({
+  id: '/stats',
+  path: '/stats',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/bankroll': typeof BankrollRoute
   '/builder': typeof BuilderRoute
   '/login': typeof LoginRoute
+  '/stats': typeof StatsRoute
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/bankroll': typeof BankrollRoute
   '/builder': typeof BuilderRoute
   '/login': typeof LoginRoute
+  '/stats': typeof StatsRoute
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/bankroll': typeof BankrollRoute
   '/builder': typeof BuilderRoute
   '/login': typeof LoginRoute
+  '/stats': typeof StatsRoute
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/bankroll'
     | '/builder'
     | '/login'
+    | '/stats'
     | '/tracked'
     | '/match/$matchId'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/bankroll'
     | '/builder'
     | '/login'
+    | '/stats'
     | '/tracked'
     | '/match/$matchId'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/bankroll'
     | '/builder'
     | '/login'
+    | '/stats'
     | '/tracked'
     | '/match/$matchId'
   fileRoutesById: FileRoutesById
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   BankrollRoute: typeof BankrollRoute
   BuilderRoute: typeof BuilderRoute
   LoginRoute: typeof LoginRoute
+  StatsRoute: typeof StatsRoute
   TrackedRoute: typeof TrackedRoute
   MatchMatchIdRoute: typeof MatchMatchIdRoute
 }
@@ -128,6 +141,13 @@ declare module '@tanstack/react-router' {
       path: '/tracked'
       fullPath: '/tracked'
       preLoaderRoute: typeof TrackedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stats': {
+      id: '/stats'
+      path: '/stats'
+      fullPath: '/stats'
+      preLoaderRoute: typeof StatsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   BankrollRoute: BankrollRoute,
   BuilderRoute: BuilderRoute,
   LoginRoute: LoginRoute,
+  StatsRoute: StatsRoute,
   TrackedRoute: TrackedRoute,
   MatchMatchIdRoute: MatchMatchIdRoute,
 }
