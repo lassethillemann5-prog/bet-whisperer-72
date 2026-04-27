@@ -15,6 +15,15 @@ export interface TeamForm {
   goalsFor: number;
   goalsAgainst: number;
   last5: ("W" | "D" | "L")[];
+  /**
+   * Time-decay weighted attack/defense per game.
+   * Computed by `fetchTeamForm` using a 90-day half-life so recent matches
+   * count more than older ones. Falls back to raw averages when missing.
+   */
+  weightedAttackPerGame?: number;
+  weightedDefensePerGame?: number;
+  /** Effective sample size after weighting (used for reliability blending). */
+  effectiveSample?: number;
 }
 
 export interface MatchSummary {
