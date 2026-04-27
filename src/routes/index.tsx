@@ -84,6 +84,22 @@ function competitionPopularity(name?: string | null): number {
   return 10;
 }
 
+/**
+ * Stable identifier for a competition that disambiguates leagues sharing the
+ * same name across countries (e.g. "Premier League" exists in England, Russia,
+ * Egypt, Ukraine, …). Uses country + name so each is filtered/grouped on its
+ * own. Falls back gracefully when country is missing.
+ */
+function competitionKey(c?: { name?: string | null; country?: string | null } | null): string {
+  const name = c?.name?.trim() || "Other";
+  const country = c?.country?.trim();
+  return country ? `${country} — ${name}` : name;
+}
+
+function competitionLabel(c?: { name?: string | null; country?: string | null } | null): string {
+  return competitionKey(c);
+}
+
 function IndexPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
