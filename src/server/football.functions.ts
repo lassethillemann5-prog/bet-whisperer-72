@@ -4,6 +4,7 @@ import {
   fetchMatch,
   fetchRecentMatches,
   fetchTeamForm,
+  fetchTeamInjuries,
   fetchUpcomingMatches,
 } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";

@@ -93,4 +93,6 @@ export interface MatchPredictions {
   expectedGoalsAway: number;
   markets: MarketPrediction[];
   commentary: string;
+  homeInjuries?: InjuryImpact | null;
+  awayInjuries?: InjuryImpact | null;
 }
