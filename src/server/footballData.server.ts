@@ -151,7 +151,7 @@ async function writeCache(table: string, row: Record<string, unknown>): Promise<
   }
 }
 
-async function fetchFixturesForDate(date: string): Promise<MatchSummary[]> {
+export async function fetchFixturesForDate(date: string): Promise<MatchSummary[]> {
   const cached = await readCache<MatchSummary[]>("fixtures_cache", "cache_key", `date:${date}`, FIXTURES_TTL_MS);
   if (cached) return cached;
 
@@ -164,6 +164,35 @@ async function fetchFixturesForDate(date: string): Promise<MatchSummary[]> {
     console.error("fixtures day failed", date, e);
     return [];
   }
+}
+
+/**
+ * Fetch finished fixtures from the past `daysBack` days (defaults to 7).
+ * Includes today (already-kicked-off matches with FT status) but only
+ * fixtures whose status indicates the match has ended.
+ */
+export async function fetchFinishedFixtures(daysBack = 7): Promise<MatchSummary[]> {
+  const today = new Date();
+  const dates: string[] = [];
+  for (let i = 0; i <= daysBack; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  const results = await Promise.all(dates.map(fetchFixturesForDate));
+  const finishedStatuses = new Set(["FT", "AET", "PEN"]);
+  const seen = new Set<number>();
+  const merged: MatchSummary[] = [];
+  for (const day of results) {
+    for (const f of day) {
+      if (!finishedStatuses.has(f.status)) continue;
+      if (f.score.fullTime.home == null || f.score.fullTime.away == null) continue;
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
+      merged.push(f);
+    }
+  }
+  return merged;
 }
 
 /** Fetch upcoming matches (default: today through next 7 days). */
