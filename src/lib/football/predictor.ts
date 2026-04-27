@@ -198,6 +198,11 @@ export function predictMarkets(
   }
   const bttsYes = Math.max(0, Math.min(1, 1 - pHome0 - pAway0 + p00));
 
+  // Team to Score (Over 0.5 goals for each side) — derived from the same matrix.
+  // P(home scores) = 1 - P(home == 0); same for away.
+  const homeScoresYes = Math.max(0, Math.min(1, 1 - pHome0));
+  const awayScoresYes = Math.max(0, Math.min(1, 1 - pAway0));
+
   // ---- Double Chance: combine 1X2 ----
   const dc1X = pHome + pDraw;
   const dc12 = pHome + pAway;
