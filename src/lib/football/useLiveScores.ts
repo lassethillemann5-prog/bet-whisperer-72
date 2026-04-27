@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { getLiveScores } from "@/server/football.functions";
 
 export interface LiveScoreLite {
@@ -53,4 +53,16 @@ export function useLiveScores(): Map<number, LiveScoreLite> {
   }, []);
 
   return map;
+}
+
+/**
+ * Context that lets any component in the tree read the live-score map without
+ * threading it through every prop. The provider is set up once near the top of
+ * the page that owns the polling hook.
+ */
+export const LiveScoresContext = createContext<Map<number, LiveScoreLite>>(new Map());
+
+/** Convenience: returns the live score for a single fixture id, or undefined. */
+export function useLiveScore(matchId: number): LiveScoreLite | undefined {
+  return useContext(LiveScoresContext).get(matchId);
 }
