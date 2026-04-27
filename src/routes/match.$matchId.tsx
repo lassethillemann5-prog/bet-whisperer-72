@@ -219,17 +219,60 @@ function Commentary({ text }: { text: string }) {
 }
 
 function MarketsGrid({ markets }: { markets: MarketPrediction[] }) {
+  const [open, setOpen] = useState(false);
+  // Best pick: highest single-selection probability across all markets.
+  const best = useMemo(() => {
+    let top: { market: string; label: string; selection: string; probability: number } | null = null;
+    for (const m of markets) {
+      for (const [sel, p] of Object.entries(m.probabilities)) {
+        if (!top || p > top.probability) {
+          top = { market: m.label, label: m.label, selection: sel, probability: p };
+        }
+      }
+    }
+    return top;
+  }, [markets]);
+
   return (
-    <section className="mt-6">
-      <div className="mb-3 flex items-center gap-2">
+    <section className="mt-6 overflow-hidden rounded-2xl border border-border/60 card-elevated">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-primary/[0.04]"
+        aria-expanded={open}
+      >
         <TrendingUp className="h-4 w-4 text-primary" />
-        <h2 className="font-display text-lg font-bold">Markets</h2>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {markets.map((m) => (
-          <MarketCard key={m.market} m={m} />
-        ))}
-      </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-lg font-bold leading-tight">Markets</div>
+          {best ? (
+            <div className="mt-0.5 flex items-center gap-2 text-xs">
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                top pick
+              </span>
+              <span className="truncate font-medium text-foreground/90">
+                {best.label} · <span className="text-primary">{best.selection}</span>
+              </span>
+              <span className="ml-auto font-mono text-xs tabular-nums text-primary">
+                {best.probability.toFixed(1)}%
+              </span>
+            </div>
+          ) : (
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              {markets.length} markets
+            </div>
+          )}
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="grid gap-3 border-t border-border/40 p-5 md:grid-cols-2">
+          {markets.map((m) => (
+            <MarketCard key={m.market} m={m} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
