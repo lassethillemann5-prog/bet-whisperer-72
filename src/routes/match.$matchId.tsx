@@ -7,6 +7,7 @@ import type { MatchPredictions, MatchSummary, MarketPrediction } from "@/lib/foo
 import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp } from "lucide-react";
+import { Activity } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
 
@@ -110,6 +111,7 @@ function MatchPage() {
           <MarketsGrid markets={data.predictions.markets} />
           <FairOddsSection match={data.match} markets={data.predictions.markets} />
           <FormSummary match={data.match} preds={data.predictions} />
+          <InjuryPanel match={data.match} preds={data.predictions} />
           <HeadToHead
             data={h2h}
             busy={h2hBusy}
