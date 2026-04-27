@@ -73,6 +73,11 @@ function BuilderPage() {
   const [units, setUnits] = useState("1");
   const [saving, setSaving] = useState(false);
 
+  // AI generator
+  const [aiRisk, setAiRisk] = useState<"safe" | "balanced" | "longshot">("balanced");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiRationale, setAiRationale] = useState<string | null>(null);
+
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
   }, [loading, user, navigate]);
@@ -155,13 +160,40 @@ function BuilderPage() {
 
   const removeLeg = (id: BuilderLegId) => {
     setLegs((prev) => prev.filter((l) => l !== id));
+    setAiRationale(null);
   };
 
-  const clearAll = () => setLegs([]);
+  const clearAll = () => {
+    setLegs([]);
+    setAiRationale(null);
+  };
   const reset = () => {
     setLegs([]);
     setMatchId(null);
     setData(null);
+    setAiRationale(null);
+  };
+
+  const generateWithAi = async () => {
+    if (!selectedMatch) return toast.error("Pick a match first");
+    setAiBusy(true);
+    setAiRationale(null);
+    try {
+      const res = await getAiBetBuilder({
+        data: { matchId: selectedMatch.id, riskLevel: aiRisk },
+      });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      setLegs(res.legs);
+      setAiRationale(res.rationale || null);
+      toast.success(`AI built a ${res.legs.length}-leg multi`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI generator failed");
+    } finally {
+      setAiBusy(false);
+    }
   };
 
   const joint = data?.jointProbability ?? null;
