@@ -98,7 +98,7 @@ function Team({
 }) {
   return (
     <div
-      className={`flex items-center gap-3 ${
+      className={`flex min-w-0 items-center gap-3 ${
         align === "right" ? "flex-row-reverse text-right" : ""
       }`}
     >
@@ -111,7 +111,7 @@ function Team({
           </span>
         )}
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="truncate font-display text-sm font-semibold">
           {team.shortName ?? team.name}
         </div>
