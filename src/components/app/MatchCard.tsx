@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 import type { MatchSummary } from "@/lib/football/types";
 import { Star, StarOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLiveScore } from "@/lib/football/useLiveScores";
+import { LiveBadge, LiveScoreLine } from "./LiveBadge";
 
 function fmtDate(iso: string) {
   const d = new Date(iso);
@@ -23,6 +25,7 @@ export function MatchCard({
   isTracked?: boolean;
   onToggleTrack?: () => void;
 }) {
+  const live = useLiveScore(match.id);
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-border/60 card-elevated transition hover:border-primary/40 hover:shadow-[0_0_24px_-12px_var(--primary)]">
       <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
@@ -39,9 +42,13 @@ export function MatchCard({
             {match.competition?.name ?? "Match"}
           </span>
         </div>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {fmtDate(match.utcDate)}
-        </span>
+        {live ? (
+          <LiveBadge score={live} />
+        ) : (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {fmtDate(match.utcDate)}
+          </span>
+        )}
       </div>
       <Link
         to="/match/$matchId"
@@ -51,9 +58,13 @@ export function MatchCard({
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           <Team team={match.homeTeam} align="right" />
           <div className="flex flex-col items-center gap-1">
-            <div className="rounded-lg bg-secondary px-2.5 py-1 font-mono text-xs font-semibold">
-              vs
-            </div>
+            {live && live.home != null && live.away != null ? (
+              <LiveScoreLine score={live} />
+            ) : (
+              <div className="rounded-lg bg-secondary px-2.5 py-1 font-mono text-xs font-semibold">
+                vs
+              </div>
+            )}
           </div>
           <Team team={match.awayTeam} align="left" />
         </div>
