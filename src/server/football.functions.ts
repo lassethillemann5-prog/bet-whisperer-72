@@ -58,7 +58,38 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
         cached.updated_at &&
         Date.now() - new Date(cached.updated_at).getTime() < CACHE_TTL_MS
       ) {
-        return cached.payload as unknown as { match: MatchSummary; predictions: MatchPredictions };
+        const payload = cached.payload as unknown as {
+          match: MatchSummary;
+          predictions: MatchPredictions;
+        };
+        // Bulk-compute paths (today's picks, coach panel, etc.) intentionally
+        // skip the AI commentary call to save time/credits and persist
+        // commentary: "". When a user opens the match detail page we want a
+        // real analyst blurb — generate it now, update the cache, and return.
+        if (!payload.predictions.commentary?.trim()) {
+          try {
+            const commentary = await generateCommentary(payload.match, {
+              homeForm: payload.predictions.homeForm,
+              awayForm: payload.predictions.awayForm,
+              expectedGoalsHome: payload.predictions.expectedGoalsHome,
+              expectedGoalsAway: payload.predictions.expectedGoalsAway,
+              markets: payload.predictions.markets,
+            });
+            payload.predictions.commentary = commentary;
+            try {
+              await supabase.from("predictions_cache").upsert({
+                match_id: matchId,
+                payload: payload as unknown,
+                updated_at: new Date().toISOString(),
+              });
+            } catch (e) {
+              console.warn("commentary cache update skipped", e);
+            }
+          } catch (e) {
+            console.warn("on-demand commentary failed", e);
+          }
+        }
+        return payload;
       }
     } catch (e) {
       console.warn("cache read failed", e);
