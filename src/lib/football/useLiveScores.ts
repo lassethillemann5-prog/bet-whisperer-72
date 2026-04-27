@@ -7,6 +7,10 @@ export interface LiveScoreLite {
   minute: number | null;
   home: number | null;
   away: number | null;
+  homeTeam?: { id: number; name: string; crest?: string | null } | null;
+  awayTeam?: { id: number; name: string; crest?: string | null } | null;
+  competition?: { id?: number; name: string; emblem?: string | null; country?: string | null } | null;
+  utcDate?: string | null;
 }
 
 const POLL_MS = 30_000;
