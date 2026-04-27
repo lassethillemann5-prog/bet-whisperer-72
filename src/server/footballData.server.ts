@@ -271,6 +271,23 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
     let wAttack = 0,
       wDefense = 0,
       wSum = 0;
+    let wXgFor = 0,
+      wXgAgainst = 0,
+      wXgSum = 0;
+    // Fetch xG in parallel for the matches we have (Pro tier feature).
+    // For each match we need both teams' stats: this team's xG = "for",
+    // opponent's xG = "against".
+    const xgPairs = await Promise.all(
+      matches.map(async (m) => {
+        const oppId = m.homeTeam.id === teamId ? m.awayTeam.id : m.homeTeam.id;
+        const [forXg, againstXg] = await Promise.all([
+          fetchFixtureXg(m.id, teamId),
+          fetchFixtureXg(m.id, oppId),
+        ]);
+        return { id: m.id, forXg, againstXg };
+      }),
+    );
+    const xgByFixture = new Map(xgPairs.map((p) => [p.id, p]));
     for (const m of matches) {
       const isHome = m.homeTeam.id === teamId;
       const ft = m.score.fullTime;
@@ -293,6 +310,12 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       wAttack += gf * w;
       wDefense += ga * w;
       wSum += w;
+      const xg = xgByFixture.get(m.id);
+      if (xg && xg.forXg != null && xg.againstXg != null) {
+        wXgFor += xg.forXg * w;
+        wXgAgainst += xg.againstXg * w;
+        wXgSum += w;
+      }
     }
     const form: TeamForm = {
       played,
@@ -305,6 +328,8 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       weightedAttackPerGame: wSum > 0 ? +(wAttack / wSum).toFixed(3) : undefined,
       weightedDefensePerGame: wSum > 0 ? +(wDefense / wSum).toFixed(3) : undefined,
       effectiveSample: wSum > 0 ? +wSum.toFixed(2) : undefined,
+      weightedXgForPerGame: wXgSum > 0 ? +(wXgFor / wXgSum).toFixed(3) : undefined,
+      weightedXgAgainstPerGame: wXgSum > 0 ? +(wXgAgainst / wXgSum).toFixed(3) : undefined,
     };
     await writeCache("team_form_cache", { team_id: teamId, payload: form as unknown });
     return form;
