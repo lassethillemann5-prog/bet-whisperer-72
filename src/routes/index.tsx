@@ -1003,7 +1003,7 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
   const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   const [expanded, setExpanded] = useState(false);
   const hasExtras =
-    !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore);
+    !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore || row.cards);
   const noData = row.noData === true;
 
   return (
@@ -1201,6 +1201,16 @@ function ExtraMarketsPanel({ row }: { row: TodayPickRow }) {
             entries={[
               ["Yes", row.awayToScore.yes],
               ["No", row.awayToScore.no],
+            ]}
+          />
+        )}
+        {row.cards && (
+          <ExtraMarketCard
+            title={`Cards O/U ${row.cards.line}`}
+            pick={row.cards.pick}
+            entries={[
+              [`Over ${row.cards.line}`, row.cards.over],
+              [`Under ${row.cards.line}`, row.cards.under],
             ]}
           />
         )}
