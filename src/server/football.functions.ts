@@ -8,6 +8,7 @@ import {
   fetchUpcomingMatches,
   fetchFinishedFixtures,
 } from "./footballData.server";
+import { fetchLiveScores, type LiveScore } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
 import {
   buildScorelineMatrix,
@@ -2038,6 +2039,24 @@ export const getStats = createServerFn({ method: "POST" })
         perMarket: [],
         bestPick: { market: "best", label: "Best Pick", hits: 0, total: 0, hitRate: 0, byMarket: [] },
         error: e instanceof Error ? e.message : "Failed to load stats",
+      };
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Live scores: in-play fixtures currently being played
+// ---------------------------------------------------------------------------
+
+export const getLiveScores = createServerFn({ method: "GET" })
+  .handler(async (): Promise<{ scores: LiveScore[]; error: string | null }> => {
+    try {
+      const scores = await fetchLiveScores();
+      return { scores, error: null };
+    } catch (e) {
+      console.error("getLiveScores failed", e);
+      return {
+        scores: [],
+        error: e instanceof Error ? e.message : "Failed to load live scores",
       };
     }
   });

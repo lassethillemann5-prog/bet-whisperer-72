@@ -44,6 +44,8 @@ import {
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
 import { tierLabel, unitsForProbability } from "@/lib/football/bankroll";
+import { useLiveScores, useLiveScore as useLive, LiveScoresContext } from "@/lib/football/useLiveScores";
+import { LiveBadge, LiveScoreLine } from "@/components/app/LiveBadge";
 
 export const Route = createFileRoute("/")({
   component: IndexPage,
@@ -144,6 +146,8 @@ function IndexPage() {
   const [todayLoaded, setTodayLoaded] = useState(false);
   const [pickOfDay, setPickOfDay] = useState<PickOfTheDayResponse["pick"]>(null);
   const [pickOfDayBusy, setPickOfDayBusy] = useState(false);
+  // Live in-play scores — polled every 30s, shared across the whole page.
+  const liveScores = useLiveScores();
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -378,6 +382,7 @@ function IndexPage() {
 
   return (
     <AppShell>
+      <LiveScoresContext.Provider value={liveScores}>
       <Hero count={matches.length} days={DAYS_WINDOW} />
       <PickOfTheDayBanner pick={pickOfDay} busy={pickOfDayBusy} />
 
@@ -607,6 +612,7 @@ function IndexPage() {
       )}
         </TabsContent>
       </Tabs>
+      </LiveScoresContext.Provider>
     </AppShell>
   );
 }
@@ -1005,6 +1011,7 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
   const hasExtras =
     !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore || row.cards);
   const noData = row.noData === true;
+  const live = useLive(row.match.id);
 
   return (
     <div
@@ -1024,10 +1031,19 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
       <div className="relative grid grid-cols-1 md:grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 px-5 py-4">
         {/* Time */}
       <div className="flex md:flex-col md:items-start items-center justify-between gap-2">
-        <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
-        <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground md:mt-0.5">
-          today
-        </span>
+        {live ? (
+          <>
+            <LiveBadge score={live} />
+            <LiveScoreLine score={live} />
+          </>
+        ) : (
+          <>
+            <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground md:mt-0.5">
+              today
+            </span>
+          </>
+        )}
       </div>
 
       {/* Match */}
