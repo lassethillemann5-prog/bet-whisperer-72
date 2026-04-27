@@ -1836,13 +1836,17 @@ function gradePredictions(
   for (const m of predictions.markets) {
     const pick = m.pick;
     switch (m.market) {
-      case "1x2":
-        out["1x2"] =
-          (pick === "Home" && result === "1") ||
-          (pick === "Draw" && result === "X") ||
-          (pick === "Away" && result === "2") ||
-          pick === result;
+      case "1x2": {
+        // Pick labels from the predictor are "1 (Home)" / "X (Draw)" / "2 (Away)".
+        const p = pick.trim();
+        const pickedSide: "1" | "X" | "2" | null =
+          p.startsWith("1") || /home/i.test(p) ? "1"
+          : p.startsWith("X") || /draw/i.test(p) ? "X"
+          : p.startsWith("2") || /away/i.test(p) ? "2"
+          : null;
+        if (pickedSide) out["1x2"] = pickedSide === result;
         break;
+      }
       case "ou_25":
         out["ou_25"] =
           (pick.startsWith("Over") && totalGoals > 2.5) ||
@@ -1865,12 +1869,15 @@ function gradePredictions(
           (pick.includes("12") && (result === "1" || result === "2")) ||
           (pick.includes("X2") && (result === "X" || result === "2"));
         break;
-      case "dnb":
-        if (result === "X") break; // push, ignore
-        out["dnb"] =
-          (pick === "Home" && result === "1") ||
-          (pick === "Away" && result === "2");
+      case "dnb": {
+        if (result === "X") break; // push — exclude from sample
+        // Pick labels: "Home (DNB)" / "Away (DNB)".
+        const isHome = /home/i.test(pick);
+        const isAway = /away/i.test(pick);
+        if (isHome) out["dnb"] = result === "1";
+        else if (isAway) out["dnb"] = result === "2";
         break;
+      }
       case "home_to_score": {
         const yes = finalHome > 0;
         out["home_to_score"] =
