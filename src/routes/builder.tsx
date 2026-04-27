@@ -306,6 +306,16 @@ function BuilderPage() {
           )}
 
           {selectedMatch && (
+            <AiBuilderPanel
+              risk={aiRisk}
+              onRiskChange={setAiRisk}
+              busy={aiBusy}
+              rationale={aiRationale}
+              onGenerate={generateWithAi}
+            />
+          )}
+
+          {selectedMatch && (
             <LegPicker
               data={data}
               busy={busy}
