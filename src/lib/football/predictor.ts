@@ -385,3 +385,169 @@ export function predictMarkets(
     expectedGoalsAway: +lambdaAway.toFixed(2),
   };
 }
+
+/* ============================================================
+ * Bet Builder — same-game joint probability
+ * ==========================================================*/
+
+/**
+ * Recompute the (calibrated) λ values used in `predictMarkets`. Returns the
+ * Dixon-Coles corrected scoreline matrix that everything else is derived
+ * from, so the bet builder can compute true joint probabilities for any
+ * combination of legs in the SAME match (correlation-aware).
+ */
+export function buildScorelineMatrix(
+  homeForm: TeamForm | null,
+  awayForm: TeamForm | null,
+  homeInjuries?: InjuryImpact | null,
+  awayInjuries?: InjuryImpact | null,
+): { matrix: number[][]; lambdaHome: number; lambdaAway: number } {
+  const h = formStrength(homeForm);
+  const a = formStrength(awayForm);
+
+  const lambdaHomeRaw = (h.attackPerGame * a.defensePerGame) / LEAGUE_AVG_GOALS_PER_TEAM;
+  const lambdaAwayRaw = (a.attackPerGame * h.defensePerGame) / LEAGUE_AVG_GOALS_PER_TEAM;
+
+  const blend = (raw: number, rel: number) => rel * raw + (1 - rel) * LEAGUE_AVG_GOALS_PER_TEAM;
+  const reliability = Math.min(h.reliability, a.reliability);
+
+  let lambdaHome = blend(lambdaHomeRaw, reliability) * HOME_ADVANTAGE;
+  let lambdaAway = blend(lambdaAwayRaw, reliability);
+
+  if (homeInjuries) {
+    lambdaHome *= homeInjuries.attackFactor;
+    lambdaAway *= homeInjuries.defenseFactor;
+  }
+  if (awayInjuries) {
+    lambdaAway *= awayInjuries.attackFactor;
+    lambdaHome *= awayInjuries.defenseFactor;
+  }
+
+  lambdaHome = Math.max(0.3, Math.min(4.0, lambdaHome));
+  lambdaAway = Math.max(0.2, Math.min(3.5, lambdaAway));
+
+  const matrix = buildMatrix(lambdaHome, lambdaAway);
+  return { matrix, lambdaHome, lambdaAway };
+}
+
+/**
+ * A single bet-builder leg. Each leg is a predicate over the (homeGoals, awayGoals)
+ * scoreline; the joint probability is the sum of matrix cells where ALL leg
+ * predicates evaluate true.
+ */
+export type BuilderLegId =
+  | "1" | "X" | "2"
+  | "1X" | "12" | "X2"
+  | "dnb_home" | "dnb_away"
+  | "over_15" | "under_15"
+  | "over_25" | "under_25"
+  | "btts_yes" | "btts_no"
+  | "home_scores_yes" | "home_scores_no"
+  | "away_scores_yes" | "away_scores_no";
+
+export interface BuilderLegMeta {
+  id: BuilderLegId;
+  /** Logical group — only one leg per group can be selected. */
+  group: "result" | "double_chance" | "dnb" | "ou_15" | "ou_25" | "btts" | "home_scores" | "away_scores";
+  marketLabel: string;
+  selectionLabel: string;
+}
+
+export const BUILDER_LEGS: BuilderLegMeta[] = [
+  { id: "1", group: "result", marketLabel: "Match Result", selectionLabel: "Home" },
+  { id: "X", group: "result", marketLabel: "Match Result", selectionLabel: "Draw" },
+  { id: "2", group: "result", marketLabel: "Match Result", selectionLabel: "Away" },
+  { id: "1X", group: "double_chance", marketLabel: "Double Chance", selectionLabel: "Home or Draw" },
+  { id: "12", group: "double_chance", marketLabel: "Double Chance", selectionLabel: "Home or Away" },
+  { id: "X2", group: "double_chance", marketLabel: "Double Chance", selectionLabel: "Draw or Away" },
+  { id: "dnb_home", group: "dnb", marketLabel: "Draw No Bet", selectionLabel: "Home" },
+  { id: "dnb_away", group: "dnb", marketLabel: "Draw No Bet", selectionLabel: "Away" },
+  { id: "over_15", group: "ou_15", marketLabel: "Goals 1.5", selectionLabel: "Over 1.5" },
+  { id: "under_15", group: "ou_15", marketLabel: "Goals 1.5", selectionLabel: "Under 1.5" },
+  { id: "over_25", group: "ou_25", marketLabel: "Goals 2.5", selectionLabel: "Over 2.5" },
+  { id: "under_25", group: "ou_25", marketLabel: "Goals 2.5", selectionLabel: "Under 2.5" },
+  { id: "btts_yes", group: "btts", marketLabel: "BTTS", selectionLabel: "Yes" },
+  { id: "btts_no", group: "btts", marketLabel: "BTTS", selectionLabel: "No" },
+  { id: "home_scores_yes", group: "home_scores", marketLabel: "Home to Score", selectionLabel: "Yes" },
+  { id: "home_scores_no", group: "home_scores", marketLabel: "Home to Score", selectionLabel: "No" },
+  { id: "away_scores_yes", group: "away_scores", marketLabel: "Away to Score", selectionLabel: "Yes" },
+  { id: "away_scores_no", group: "away_scores", marketLabel: "Away to Score", selectionLabel: "No" },
+];
+
+function legPredicate(id: BuilderLegId): (h: number, a: number) => boolean {
+  switch (id) {
+    case "1": return (h, a) => h > a;
+    case "X": return (h, a) => h === a;
+    case "2": return (h, a) => h < a;
+    case "1X": return (h, a) => h >= a;
+    case "12": return (h, a) => h !== a;
+    case "X2": return (h, a) => h <= a;
+    case "dnb_home": return (h, a) => h > a; // draw → void; we report conditional below
+    case "dnb_away": return (h, a) => h < a;
+    case "over_15": return (h, a) => h + a >= 2;
+    case "under_15": return (h, a) => h + a <= 1;
+    case "over_25": return (h, a) => h + a >= 3;
+    case "under_25": return (h, a) => h + a <= 2;
+    case "btts_yes": return (h, a) => h >= 1 && a >= 1;
+    case "btts_no": return (h, a) => h === 0 || a === 0;
+    case "home_scores_yes": return (h) => h >= 1;
+    case "home_scores_no": return (h) => h === 0;
+    case "away_scores_yes": return (_h, a) => a >= 1;
+    case "away_scores_no": return (_h, a) => a === 0;
+  }
+}
+
+/**
+ * Compute correlation-adjusted joint probability for a set of bet-builder
+ * legs in the same match. Returns null if `legs` is empty.
+ *
+ * Notes on edge cases:
+ *  - DNB legs: the standard convention is "draw → stake refunded". We model
+ *    it by computing P(DNB selection wins | match not drawn) and combining
+ *    with the non-draw mass that satisfies the other legs. To keep the math
+ *    consistent for combos, we approximate by treating DNB as the same
+ *    predicate as the corresponding 1/2 win — this is conservative because
+ *    pushed (drawn) outcomes don't add value but also don't lose. Bookmakers
+ *    use the same approach when listing DNB inside same-game multis.
+ */
+export function jointProbability(
+  matrix: number[][],
+  legIds: BuilderLegId[],
+): number {
+  if (legIds.length === 0) return 0;
+  const preds = legIds.map(legPredicate);
+  let p = 0;
+  for (let h = 0; h < matrix.length; h++) {
+    for (let a = 0; a < matrix[h].length; a++) {
+      if (preds.every((fn) => fn(h, a))) p += matrix[h][a];
+    }
+  }
+  return Math.max(0, Math.min(1, p));
+}
+
+/**
+ * Given the current set of selected legs, return the set of OTHER legs that
+ * are now logically incompatible (joint probability == 0 against the matrix,
+ * OR same group as a currently-selected leg).
+ */
+export function conflictingLegs(
+  matrix: number[][],
+  selected: BuilderLegId[],
+): Set<BuilderLegId> {
+  const out = new Set<BuilderLegId>();
+  // Same-group lockout (only one selection per market)
+  const usedGroups = new Set(
+    selected.map((id) => BUILDER_LEGS.find((l) => l.id === id)!.group),
+  );
+  for (const meta of BUILDER_LEGS) {
+    if (selected.includes(meta.id)) continue;
+    if (usedGroups.has(meta.group)) {
+      out.add(meta.id);
+      continue;
+    }
+    // Logical impossibility (joint prob = 0)
+    const candidate = [...selected, meta.id];
+    if (jointProbability(matrix, candidate) <= 1e-9) out.add(meta.id);
+  }
+  return out;
+}

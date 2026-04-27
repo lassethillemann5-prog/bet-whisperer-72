@@ -8,6 +8,13 @@ import {
   fetchUpcomingMatches,
 } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
+import {
+  buildScorelineMatrix,
+  jointProbability,
+  conflictingLegs,
+  BUILDER_LEGS,
+  type BuilderLegId,
+} from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
 import { createClient } from "@supabase/supabase-js";
@@ -1509,6 +1516,133 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
         summary: "",
         considered: 0,
         error: e instanceof Error ? e.message : "Failed to build accumulator",
+      };
+    }
+  });
+/* ============================================================
+ * Bet Builder — same-game multi (correlation-adjusted)
+ * ==========================================================*/
+
+export interface BetBuilderMatch {
+  matchId: number;
+  homeTeam: string;
+  awayTeam: string;
+  competition: string | null;
+  kickoff: string;
+  /** Cached individual-market predictions, used for the per-leg "model %" badge. */
+  legProbabilities: Record<BuilderLegId, number>;
+  /** Set of leg IDs currently impossible (e.g. no form data). */
+  unavailable: BuilderLegId[];
+}
+
+export interface BetBuilderResponse {
+  match: BetBuilderMatch | null;
+  /**
+   * Joint probability for the requested combination of legs (0..1).
+   * `null` if no legs requested.
+   */
+  jointProbability: number | null;
+  fairOdds: number | null;
+  /** Leg IDs that are now disabled given the current selection (group lockout + conflicts). */
+  conflicts: BuilderLegId[];
+  error: string | null;
+}
+
+/**
+ * Build a per-leg probability map by extracting individual-leg probabilities
+ * from the cached scoreline matrix. This is the same number you'd see in
+ * Today's Picks, just on every available selection.
+ */
+function legProbabilitiesFromMatrix(matrix: number[][]): Record<BuilderLegId, number> {
+  const out: Partial<Record<BuilderLegId, number>> = {};
+  for (const meta of BUILDER_LEGS) {
+    out[meta.id] = +(jointProbability(matrix, [meta.id]) * 100).toFixed(1);
+  }
+  return out as Record<BuilderLegId, number>;
+}
+
+export const getBetBuilder = createServerFn({ method: "POST" })
+  .inputValidator((input: { matchId: number; legs: BuilderLegId[] }) => input)
+  .handler(async ({ data }): Promise<BetBuilderResponse> => {
+    try {
+      const supabase = adminClient();
+      const matchId = Number(data.matchId);
+      const legs = (data.legs ?? []).slice(0, 8); // hard cap
+
+      const { data: cached } = await supabase
+        .from("predictions_cache")
+        .select("payload")
+        .eq("match_id", matchId)
+        .maybeSingle();
+
+      if (!cached?.payload) {
+        return {
+          match: null,
+          jointProbability: null,
+          fairOdds: null,
+          conflicts: [],
+          error: "No predictions available for this match yet. Open the match once to generate them.",
+        };
+      }
+
+      const payload = cached.payload as unknown as {
+        match: MatchSummary;
+        predictions: MatchPredictions;
+      };
+
+      if (!payload.predictions.homeForm || !payload.predictions.awayForm) {
+        return {
+          match: {
+            matchId,
+            homeTeam: payload.match.homeTeam.name,
+            awayTeam: payload.match.awayTeam.name,
+            competition: payload.match.competition?.name ?? null,
+            kickoff: payload.match.utcDate,
+            legProbabilities: {} as Record<BuilderLegId, number>,
+            unavailable: BUILDER_LEGS.map((l) => l.id),
+          },
+          jointProbability: null,
+          fairOdds: null,
+          conflicts: [],
+          error: "Not enough form data to build a bet for this match.",
+        };
+      }
+
+      const { matrix } = buildScorelineMatrix(
+        payload.predictions.homeForm,
+        payload.predictions.awayForm,
+        payload.predictions.homeInjuries ?? null,
+        payload.predictions.awayInjuries ?? null,
+      );
+
+      const legProbabilities = legProbabilitiesFromMatrix(matrix);
+      const conflictsSet = conflictingLegs(matrix, legs);
+      const joint = legs.length > 0 ? jointProbability(matrix, legs) : null;
+      const fairOdds = joint != null && joint > 1e-9 ? +(1 / joint).toFixed(2) : null;
+
+      return {
+        match: {
+          matchId,
+          homeTeam: payload.match.homeTeam.name,
+          awayTeam: payload.match.awayTeam.name,
+          competition: payload.match.competition?.name ?? null,
+          kickoff: payload.match.utcDate,
+          legProbabilities,
+          unavailable: [],
+        },
+        jointProbability: joint,
+        fairOdds,
+        conflicts: Array.from(conflictsSet),
+        error: null,
+      };
+    } catch (e) {
+      console.error("getBetBuilder failed", e);
+      return {
+        match: null,
+        jointProbability: null,
+        fairOdds: null,
+        conflicts: [],
+        error: e instanceof Error ? e.message : "Failed to build bet",
       };
     }
   });
