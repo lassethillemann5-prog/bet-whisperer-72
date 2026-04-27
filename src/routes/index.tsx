@@ -153,6 +153,8 @@ function IndexPage() {
   const [todayLoaded, setTodayLoaded] = useState(false);
   const [pickOfDay, setPickOfDay] = useState<PickOfTheDayResponse["pick"]>(null);
   const [pickOfDayBusy, setPickOfDayBusy] = useState(false);
+  // Live in-play scores — polled every 30s, shared across the whole page.
+  const liveScores = useLiveScores();
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -387,6 +389,7 @@ function IndexPage() {
 
   return (
     <AppShell>
+      <LiveScoresContext.Provider value={liveScores}>
       <Hero count={matches.length} days={DAYS_WINDOW} />
       <PickOfTheDayBanner pick={pickOfDay} busy={pickOfDayBusy} />
 
@@ -616,6 +619,7 @@ function IndexPage() {
       )}
         </TabsContent>
       </Tabs>
+      </LiveScoresContext.Provider>
     </AppShell>
   );
 }
