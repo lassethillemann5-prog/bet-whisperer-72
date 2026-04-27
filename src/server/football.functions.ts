@@ -496,7 +496,13 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
         const c = cacheMap.get(f.id);
         if (!c || !c.fresh) return true;
         const p = c.payload.predictions;
-        return p.homeForm == null || p.awayForm == null;
+        if (p.homeForm == null || p.awayForm == null) return true;
+        // Recompute when newly-added markets (e.g. cards) are missing from
+        // older cached payloads so the fixtures list stays in sync.
+        const requiredMarkets = ["cards", "double_chance", "dnb", "ah"];
+        return !requiredMarkets.every((k) =>
+          p.markets.some((m) => m.market === k),
+        );
       });
 
       // 4. Compute up to computeBudget fresh predictions in parallel
