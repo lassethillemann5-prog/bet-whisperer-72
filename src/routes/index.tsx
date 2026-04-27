@@ -1340,6 +1340,8 @@ function CoachPicksPanel() {
     { label: "Double Chance", value: "double_chance", hint: "1X / 12 / X2" },
     { label: "Draw No Bet", value: "dnb", hint: "Home or Away (push on draw)" },
     { label: "Asian Handicap", value: "ah", hint: "Half-line, no push" },
+    { label: "Home Team to Score", value: "home_to_score", hint: "Home Over 0.5 goals" },
+    { label: "Away Team to Score", value: "away_to_score", hint: "Away Over 0.5 goals" },
   ];
 
   const probSteps = [50, 55, 60, 65, 70, 75, 80];
