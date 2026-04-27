@@ -91,6 +91,36 @@ async function fdFetch<T>(path: string): Promise<T> {
   return json;
 }
 
+/**
+ * Fetch fixture statistics (Pro+ tier on API-Sports).
+ * Returns expected goals for the given team in the given fixture, or null
+ * when the stat is missing (older fixtures, lower-tier leagues, or non-Pro
+ * keys all gracefully degrade to null).
+ */
+interface ApiSportsStatRow {
+  team: { id: number };
+  statistics: { type: string; value: number | string | null }[];
+}
+async function fetchFixtureXg(fixtureId: number, teamId: number): Promise<number | null> {
+  try {
+    const data = await fdFetch<{ response: ApiSportsStatRow[] }>(
+      `/fixtures/statistics?fixture=${fixtureId}&team=${teamId}`,
+    );
+    const row = data.response?.[0];
+    if (!row) return null;
+    const xgStat = row.statistics.find(
+      (s) => s.type?.toLowerCase().includes("expected_goals") ||
+             s.type?.toLowerCase() === "expected goals",
+    );
+    if (!xgStat || xgStat.value == null) return null;
+    const v = typeof xgStat.value === "number" ? xgStat.value : parseFloat(String(xgStat.value));
+    return Number.isFinite(v) ? v : null;
+  } catch (e) {
+    console.warn("fetchFixtureXg failed", fixtureId, teamId, e);
+    return null;
+  }
+}
+
 /** Read a cached payload if it's still within TTL. Best-effort, never throws. */
 async function readCache<T>(table: string, keyCol: string, keyVal: string | number, ttlMs: number): Promise<T | null> {
   const sb = cacheClient();
