@@ -84,6 +84,22 @@ function competitionPopularity(name?: string | null): number {
   return 10;
 }
 
+/**
+ * Stable identifier for a competition that disambiguates leagues sharing the
+ * same name across countries (e.g. "Premier League" exists in England, Russia,
+ * Egypt, Ukraine, …). Uses country + name so each is filtered/grouped on its
+ * own. Falls back gracefully when country is missing.
+ */
+function competitionKey(c?: { name?: string | null; country?: string | null } | null): string {
+  const name = c?.name?.trim() || "Other";
+  const country = c?.country?.trim();
+  return country ? `${country} — ${name}` : name;
+}
+
+function competitionLabel(c?: { name?: string | null; country?: string | null } | null): string {
+  return competitionKey(c);
+}
+
 function IndexPage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -217,8 +233,8 @@ function IndexPage() {
   const competitions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const m of dayMatches) {
-      const name = m.competition?.name ?? "Other";
-      counts.set(name, (counts.get(name) ?? 0) + 1);
+      const key = competitionKey(m.competition);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1]);
@@ -227,7 +243,7 @@ function IndexPage() {
   const filtered = useMemo(() => {
     let out = dayMatches;
     if (competition !== "all") {
-      out = out.filter((m) => (m.competition?.name ?? "Other") === competition);
+      out = out.filter((m) => competitionKey(m.competition) === competition);
     }
     if (query.trim()) {
       const q = query.toLowerCase();
@@ -235,7 +251,8 @@ function IndexPage() {
         (m) =>
           m.homeTeam.name.toLowerCase().includes(q) ||
           m.awayTeam.name.toLowerCase().includes(q) ||
-          m.competition?.name?.toLowerCase().includes(q),
+          m.competition?.name?.toLowerCase().includes(q) ||
+          m.competition?.country?.toLowerCase().includes(q),
       );
     }
     return out;
@@ -268,9 +285,9 @@ function IndexPage() {
   const groupedShown = useMemo(() => {
     const groups = new Map<string, MatchSummary[]>();
     for (const m of shownMatches) {
-      const name = m.competition?.name ?? "Other";
-      if (!groups.has(name)) groups.set(name, []);
-      groups.get(name)!.push(m);
+      const key = competitionKey(m.competition);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(m);
     }
     for (const arr of groups.values()) {
       arr.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
@@ -281,8 +298,9 @@ function IndexPage() {
         const eb = Math.min(...b[1].map((m) => new Date(m.utcDate).getTime()));
         return ea - eb;
       }
-      const pa = competitionPopularity(a[0]);
-      const pb = competitionPopularity(b[0]);
+      // Popularity ranks by league name only — country prefix doesn't matter.
+      const pa = competitionPopularity(a[1][0]?.competition?.name);
+      const pb = competitionPopularity(b[1][0]?.competition?.name);
       if (pa !== pb) return pb - pa;
       if (b[1].length !== a[1].length) return b[1].length - a[1].length;
       return a[0].localeCompare(b[0]);
@@ -702,8 +720,8 @@ function TodaysPicksPanel({
   const competitions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of upcomingRows) {
-      const name = r.match.competition?.name ?? "Other";
-      counts.set(name, (counts.get(name) ?? 0) + 1);
+      const key = competitionKey(r.match.competition);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [upcomingRows]);
@@ -711,7 +729,7 @@ function TodaysPicksPanel({
   const filtered = useMemo(() => {
     let out = upcomingRows;
     if (pickComp !== "all") {
-      out = out.filter((r) => (r.match.competition?.name ?? "Other") === pickComp);
+      out = out.filter((r) => competitionKey(r.match.competition) === pickComp);
     }
     if (pickMarket !== "all") {
       out = out.filter((r) => r.best?.market === pickMarket);
@@ -725,7 +743,8 @@ function TodaysPicksPanel({
         (r) =>
           r.match.homeTeam.name.toLowerCase().includes(q) ||
           r.match.awayTeam.name.toLowerCase().includes(q) ||
-          r.match.competition?.name?.toLowerCase().includes(q),
+          r.match.competition?.name?.toLowerCase().includes(q) ||
+          r.match.competition?.country?.toLowerCase().includes(q),
       );
     }
     return out;

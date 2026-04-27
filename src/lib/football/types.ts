@@ -30,7 +30,15 @@ export interface MatchSummary {
   id: number;
   utcDate: string;
   status: string;
-  competition: { name: string; emblem?: string | null; code?: string };
+  competition: {
+    name: string;
+    emblem?: string | null;
+    code?: string;
+    /** Country / region of the competition — used to disambiguate leagues
+     *  that share the same name (e.g. "Premier League" exists in England,
+     *  Russia, Egypt, Ukraine, …). */
+    country?: string | null;
+  };
   homeTeam: { id: number; name: string; shortName?: string; crest?: string | null };
   awayTeam: { id: number; name: string; shortName?: string; crest?: string | null };
   score: {

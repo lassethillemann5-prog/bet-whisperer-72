@@ -51,6 +51,7 @@ function toMatchSummary(item: ApiSportsFixture): MatchSummary {
       name: item.league.name,
       emblem: item.league.logo ?? null,
       code: item.league.id ? String(item.league.id) : item.league.country,
+      country: item.league.country ?? null,
     },
     homeTeam: {
       id: item.teams.home.id,
