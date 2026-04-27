@@ -8,6 +8,7 @@ import {
   fetchUpcomingMatches,
   fetchFinishedFixtures,
 } from "./footballData.server";
+import { fetchLiveScores, type LiveScore } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
 import {
   buildScorelineMatrix,
