@@ -84,6 +84,28 @@ function competitionPopularity(name?: string | null): number {
   return 10;
 }
 
+// True if the competition is in the curated "featured" set (any tier match).
+function isFeaturedCompetition(name?: string | null): boolean {
+  return competitionPopularity(name) > 10;
+}
+
+// Comparator: featured leagues first, then everything alphabetical by
+// country, then league name. Used for popularity sort mode.
+function compareCompetitions(
+  a: { name?: string | null; country?: string | null } | null | undefined,
+  b: { name?: string | null; country?: string | null } | null | undefined,
+): number {
+  const fa = isFeaturedCompetition(a?.name);
+  const fb = isFeaturedCompetition(b?.name);
+  if (fa !== fb) return fa ? -1 : 1;
+  const ca = (a?.country ?? "").toLowerCase();
+  const cb = (b?.country ?? "").toLowerCase();
+  if (ca !== cb) return ca.localeCompare(cb);
+  const na = (a?.name ?? "").toLowerCase();
+  const nb = (b?.name ?? "").toLowerCase();
+  return na.localeCompare(nb);
+}
+
 /**
  * Stable identifier for a competition that disambiguates leagues sharing the
  * same name across countries (e.g. "Premier League" exists in England, Russia,
@@ -264,11 +286,10 @@ function IndexPage() {
     if (sortBy === "time") {
       arr.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
     } else {
-      // Popularity: rank by competition tier, then by kickoff time.
+      // Featured leagues first, then alphabetical by country, then kickoff.
       arr.sort((a, b) => {
-        const pa = competitionPopularity(a.competition?.name);
-        const pb = competitionPopularity(b.competition?.name);
-        if (pa !== pb) return pb - pa;
+        const c = compareCompetitions(a.competition, b.competition);
+        if (c !== 0) return c;
         return new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime();
       });
     }
@@ -298,12 +319,8 @@ function IndexPage() {
         const eb = Math.min(...b[1].map((m) => new Date(m.utcDate).getTime()));
         return ea - eb;
       }
-      // Popularity ranks by league name only — country prefix doesn't matter.
-      const pa = competitionPopularity(a[1][0]?.competition?.name);
-      const pb = competitionPopularity(b[1][0]?.competition?.name);
-      if (pa !== pb) return pb - pa;
-      if (b[1].length !== a[1].length) return b[1].length - a[1].length;
-      return a[0].localeCompare(b[0]);
+      // Featured leagues first, then alphabetical by country + league name.
+      return compareCompetitions(a[1][0]?.competition, b[1][0]?.competition);
     });
   }, [shownMatches, sortBy]);
 
