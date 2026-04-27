@@ -467,10 +467,15 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
         });
       }
 
-      // 3. Identify fixtures missing fresh predictions
+      // 3. Identify fixtures missing fresh predictions OR cached with no form
+      // data (previous form fetch returned null — likely a transient API
+      // failure; retry now so the row can show real numbers instead of a
+      // league-average fallback).
       const missing = fixtures.filter((f) => {
         const c = cacheMap.get(f.id);
-        return !c || !c.fresh;
+        if (!c || !c.fresh) return true;
+        const p = c.payload.predictions;
+        return p.homeForm == null || p.awayForm == null;
       });
 
       // 4. Compute up to computeBudget fresh predictions in parallel
