@@ -50,6 +50,9 @@ export type Database = {
       bet_log: {
         Row: {
           away_team: string | null
+          closing_odds: number | null
+          closing_odds_captured_at: string | null
+          clv_pct: number | null
           competition: string | null
           created_at: string
           decimal_odds: number
@@ -70,6 +73,9 @@ export type Database = {
         }
         Insert: {
           away_team?: string | null
+          closing_odds?: number | null
+          closing_odds_captured_at?: string | null
+          clv_pct?: number | null
           competition?: string | null
           created_at?: string
           decimal_odds: number
@@ -90,6 +96,9 @@ export type Database = {
         }
         Update: {
           away_team?: string | null
+          closing_odds?: number | null
+          closing_odds_captured_at?: string | null
+          clv_pct?: number | null
           competition?: string | null
           created_at?: string
           decimal_odds?: number
@@ -177,6 +186,27 @@ export type Database = {
         Relationships: []
       }
       team_form_cache: {
+        Row: {
+          created_at: string
+          payload: Json
+          team_id: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          payload: Json
+          team_id: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          payload?: Json
+          team_id?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      team_injuries_cache: {
         Row: {
           created_at: string
           payload: Json
