@@ -390,7 +390,14 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
 // AI Coach: recommend bets for a chosen market based on model probabilities
 // ---------------------------------------------------------------------------
 
-export type CoachMarket = "any" | "1x2" | "ou_25" | "btts";
+export type CoachMarket =
+  | "any"
+  | "1x2"
+  | "ou_25"
+  | "btts"
+  | "double_chance"
+  | "dnb"
+  | "ah";
 
 export interface CoachRecommendation {
   matchId: number;
@@ -419,6 +426,9 @@ function marketLabel(m: CoachMarket): string {
     case "1x2": return "Match Result (1X2)";
     case "ou_25": return "Over/Under 2.5 Goals";
     case "btts": return "Both Teams To Score";
+    case "double_chance": return "Double Chance";
+    case "dnb": return "Draw No Bet";
+    case "ah": return "Asian Handicap";
     default: return "Any market";
   }
 }
