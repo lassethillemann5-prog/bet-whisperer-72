@@ -2042,3 +2042,21 @@ export const getStats = createServerFn({ method: "POST" })
       };
     }
   });
+
+// ---------------------------------------------------------------------------
+// Live scores: in-play fixtures currently being played
+// ---------------------------------------------------------------------------
+
+export const getLiveScores = createServerFn({ method: "GET" })
+  .handler(async (): Promise<{ scores: LiveScore[]; error: string | null }> => {
+    try {
+      const scores = await fetchLiveScores();
+      return { scores, error: null };
+    } catch (e) {
+      console.error("getLiveScores failed", e);
+      return {
+        scores: [],
+        error: e instanceof Error ? e.message : "Failed to load live scores",
+      };
+    }
+  });
