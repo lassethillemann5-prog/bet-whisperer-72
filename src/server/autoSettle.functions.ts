@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { fetchMatch } from "./footballData.server";
 import type { MatchSummary } from "@/lib/football/types";
+import { fetchClosingOdds } from "./oddsData.server";
 
 function adminClient(): SupabaseClient {
   const url = process.env.SUPABASE_URL;
@@ -154,9 +155,31 @@ export const autoSettleBets = createServerFn({ method: "POST" })
       const prevProfit = Number(bet.profit ?? 0);
       const delta = newProfit - prevProfit;
 
+      // CLV capture (best-effort): pull the closing decimal odds for this
+      // match+market+selection from The Odds API and compute CLV.
+      // Fields we update:
+      //   closing_odds            — bookmaker closing decimal odds
+      //   closing_odds_captured_at — timestamp of capture
+      //   clv_pct                 — (taken / closing - 1) * 100
+      const update: Record<string, unknown> = { status: outcome, profit: newProfit };
+      try {
+        const closing = await fetchClosingOdds({
+          match,
+          market: bet.market,
+          selection: bet.selection,
+        });
+        if (closing && closing > 1) {
+          update.closing_odds = +closing.toFixed(3);
+          update.closing_odds_captured_at = new Date().toISOString();
+          update.clv_pct = +(((odds / closing) - 1) * 100).toFixed(2);
+        }
+      } catch (e) {
+        // CLV is optional metadata — never block settlement on it.
+        console.warn("CLV capture failed for bet", bet.id, e);
+      }
       const { error: updErr } = await supabase
         .from("bet_log")
-        .update({ status: outcome, profit: newProfit })
+        .update(update)
         .eq("id", bet.id);
       if (updErr) {
         errors.push(`bet ${bet.id}: ${updErr.message}`);

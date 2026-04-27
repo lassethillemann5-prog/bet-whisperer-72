@@ -32,6 +32,9 @@ export interface BetLogRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  closing_odds?: number | null;
+  closing_odds_captured_at?: string | null;
+  clv_pct?: number | null;
 }
 
 /**
@@ -244,6 +247,12 @@ export interface BankrollStats {
   roi: number; // profit / staked, 0..1
   yieldPct: number; // same as roi *100
   avgOdds: number;
+  /** Average CLV percentage across bets that have a closing odds capture. */
+  avgClvPct: number;
+  /** Number of bets with CLV data. */
+  clvSample: number;
+  /** Share of CLV-tracked bets that beat the close (clv > 0). */
+  beatCloseRate: number;
 }
 
 export function computeStats(bets: BetLogRow[], unitSize: number): BankrollStats {
@@ -261,6 +270,15 @@ export function computeStats(bets: BetLogRow[], unitSize: number): BankrollStats
       ? settled.reduce((s, b) => s + Number(b.decimal_odds), 0) / settled.length
       : 0;
   const roi = totalStaked > 0 ? totalProfit / totalStaked : 0;
+  const withClv = bets.filter(
+    (b) => b.clv_pct != null && Number.isFinite(Number(b.clv_pct)),
+  );
+  const avgClvPct =
+    withClv.length > 0
+      ? withClv.reduce((s, b) => s + Number(b.clv_pct), 0) / withClv.length
+      : 0;
+  const beatCount = withClv.filter((b) => Number(b.clv_pct) > 0).length;
+  const beatCloseRate = withClv.length > 0 ? beatCount / withClv.length : 0;
   return {
     totalBets: bets.length,
     settled: settled.length,
@@ -276,6 +294,9 @@ export function computeStats(bets: BetLogRow[], unitSize: number): BankrollStats
     roi,
     yieldPct: roi * 100,
     avgOdds,
+    avgClvPct,
+    clvSample: withClv.length,
+    beatCloseRate,
   };
 }
 

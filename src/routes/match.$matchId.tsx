@@ -7,6 +7,7 @@ import type { MatchPredictions, MatchSummary, MarketPrediction } from "@/lib/foo
 import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp } from "lucide-react";
+import { Activity } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
 
@@ -110,6 +111,7 @@ function MatchPage() {
           <MarketsGrid markets={data.predictions.markets} />
           <FairOddsSection match={data.match} markets={data.predictions.markets} />
           <FormSummary match={data.match} preds={data.predictions} />
+          <InjuryPanel match={data.match} preds={data.predictions} />
           <HeadToHead
             data={h2h}
             busy={h2hBusy}
@@ -518,6 +520,72 @@ function FairOddsSection({
         {markets.map((m) => (
           <FairOddsMarket key={m.market} match={match} m={m} />
         ))}
+      </div>
+    </section>
+  );
+}
+
+function InjuryPanel({ match, preds }: { match: MatchSummary; preds: MatchPredictions }) {
+  const home = preds.homeInjuries;
+  const away = preds.awayInjuries;
+  // Hide entirely when no data on either side (e.g. lower-tier league).
+  if (!home && !away) return null;
+  const teams = [
+    { team: match.homeTeam, inj: home, label: "Home" },
+    { team: match.awayTeam, inj: away, label: "Away" },
+  ];
+  return (
+    <section className="mt-6">
+      <div className="mb-3 flex items-center gap-2">
+        <Activity className="h-4 w-4 text-primary" />
+        <h2 className="font-display text-lg font-bold">Injuries & availability</h2>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {teams.map(({ team, inj, label }) => {
+          const out = inj?.out ?? 0;
+          const attackHit = inj ? Math.round((1 - inj.attackFactor) * 100) : 0;
+          return (
+            <div key={team.id} className="rounded-2xl border border-border/60 card-elevated p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                    {label}
+                  </div>
+                  <div className="font-display text-base font-semibold">{team.name}</div>
+                </div>
+                <div
+                  className={`rounded-md px-2.5 py-1 text-right font-mono text-[10px] uppercase tracking-[0.15em] ${
+                    out === 0
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : out >= 4
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-warning/10 text-warning"
+                  }`}
+                >
+                  {out === 0 ? "Full squad" : `${out} out`}
+                  {attackHit > 0 && (
+                    <div className="text-[9px] opacity-80">−{attackHit}% attack</div>
+                  )}
+                </div>
+              </div>
+              {inj && inj.notable.length > 0 && (
+                <ul className="mt-3 flex flex-wrap gap-1.5">
+                  {inj.notable.map((name) => (
+                    <li
+                      key={name}
+                      className="rounded-md bg-secondary/60 px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!inj && (
+                <p className="mt-3 text-xs text-muted-foreground">No injury data available.</p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

@@ -4,6 +4,7 @@ import {
   fetchMatch,
   fetchRecentMatches,
   fetchTeamForm,
+  fetchTeamInjuries,
   fetchUpcomingMatches,
 } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
@@ -93,6 +94,8 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
               const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
                 payload.predictions.homeForm,
                 payload.predictions.awayForm,
+                payload.predictions.homeInjuries ?? null,
+                payload.predictions.awayInjuries ?? null,
               );
               payload.predictions.markets = markets;
               payload.predictions.expectedGoalsHome = expectedGoalsHome;
@@ -144,13 +147,17 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
 
     // Fresh fetch
     const match = await fetchMatch(matchId);
-    const [homeForm, awayForm] = await Promise.all([
+    const [homeForm, awayForm, homeInjuries, awayInjuries] = await Promise.all([
       fetchTeamForm(match.homeTeam.id),
       fetchTeamForm(match.awayTeam.id),
+      fetchTeamInjuries(match.homeTeam.id),
+      fetchTeamInjuries(match.awayTeam.id),
     ]);
     const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
       homeForm,
       awayForm,
+      homeInjuries,
+      awayInjuries,
     );
     const partial = {
       homeForm,
@@ -158,6 +165,8 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
       expectedGoalsHome,
       expectedGoalsAway,
       markets,
+      homeInjuries,
+      awayInjuries,
     };
     const commentary = await generateCommentary(match, partial);
     const predictions: MatchPredictions = {

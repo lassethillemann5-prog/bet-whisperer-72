@@ -1,4 +1,5 @@
 import type { MarketPrediction, TeamForm } from "./types";
+import type { InjuryImpact } from "./types";
 
 /** Poisson PMF */
 function poisson(k: number, lambda: number): number {
@@ -110,6 +111,8 @@ function applyTemperature(p1: number, pX: number, p2: number, T = TEMPERATURE): 
 export function predictMarkets(
   homeForm: TeamForm | null,
   awayForm: TeamForm | null,
+  homeInjuries?: InjuryImpact | null,
+  awayInjuries?: InjuryImpact | null,
 ): {
   markets: MarketPrediction[];
   expectedGoalsHome: number;
@@ -130,6 +133,17 @@ export function predictMarkets(
   const reliability = Math.min(h.reliability, a.reliability);
   let lambdaHome = blend(lambdaHomeRaw, reliability) * HOME_ADVANTAGE;
   let lambdaAway = blend(lambdaAwayRaw, reliability);
+
+  // Apply injury penalties: missing key attackers reduce λ for this team's
+  // attack; missing key defenders inflate λ for the opponent's attack.
+  if (homeInjuries) {
+    lambdaHome *= homeInjuries.attackFactor;
+    lambdaAway *= homeInjuries.defenseFactor;
+  }
+  if (awayInjuries) {
+    lambdaAway *= awayInjuries.attackFactor;
+    lambdaHome *= awayInjuries.defenseFactor;
+  }
 
   // Clamp realistic range
   lambdaHome = Math.max(0.3, Math.min(4.0, lambdaHome));
@@ -183,6 +197,37 @@ export function predictMarkets(
     }
   }
   const bttsYes = Math.max(0, Math.min(1, 1 - pHome0 - pAway0 + p00));
+
+  // ---- Double Chance: combine 1X2 ----
+  const dc1X = pHome + pDraw;
+  const dc12 = pHome + pAway;
+  const dcX2 = pDraw + pAway;
+
+  // ---- Draw No Bet: renormalise excluding the draw ----
+  const dnbDen = pHome + pAway || 1;
+  const dnbHome = pHome / dnbDen;
+  const dnbAway = pAway / dnbDen;
+
+  // ---- Asian Handicap (pick a single line near the model's expected margin)
+  // We pick a half-line so there's no push, and report P(home covers).
+  // expectedMargin > 0 → home favoured; we offer a handicap that brings the
+  // game closest to a 50/50 from the model's perspective (i.e. round to .5).
+  const expectedMargin = lambdaHome - lambdaAway;
+  // Round to nearest .5 then negate for the home line. Cap at +/-2.5.
+  const ahMagnitude = Math.max(0.5, Math.min(2.5, Math.round(Math.abs(expectedMargin) * 2) / 2));
+  const homeLine = expectedMargin >= 0 ? -ahMagnitude : +ahMagnitude;
+  // Compute P(home covers homeLine) by summing matrix cells where
+  // (h - a) + homeLine > 0 (home wins handicap).
+  let pHomeCovers = 0;
+  for (let hh = 0; hh < matrix.length; hh++) {
+    for (let aa = 0; aa < matrix[hh].length; aa++) {
+      if (hh - aa + homeLine > 0) pHomeCovers += matrix[hh][aa];
+    }
+  }
+  pHomeCovers = Math.max(0, Math.min(1, pHomeCovers));
+  const pAwayCovers = 1 - pHomeCovers;
+  const homeLineLabel = (homeLine > 0 ? "+" : "") + homeLine.toFixed(1);
+  const awayLineLabel = (-homeLine > 0 ? "+" : "") + (-homeLine).toFixed(1);
 
   // Corners / Shots / Shots on target — approximated from goal expectancy
   // (Football-Data free tier doesn't provide these stats.)
@@ -238,6 +283,40 @@ export function predictMarkets(
       probabilities: {
         Yes: +(bttsYes * 100).toFixed(1),
         No: +((1 - bttsYes) * 100).toFixed(1),
+      },
+    },
+    {
+      market: "double_chance",
+      label: "Double Chance",
+      pick:
+        dc1X >= dc12 && dc1X >= dcX2
+          ? "1X (Home or Draw)"
+          : dc12 >= dcX2
+          ? "12 (Home or Away)"
+          : "X2 (Draw or Away)",
+      probabilities: {
+        "1X": +(dc1X * 100).toFixed(1),
+        "12": +(dc12 * 100).toFixed(1),
+        X2: +(dcX2 * 100).toFixed(1),
+      },
+    },
+    {
+      market: "dnb",
+      label: "Draw No Bet",
+      pick: dnbHome >= dnbAway ? "Home (DNB)" : "Away (DNB)",
+      probabilities: {
+        Home: +(dnbHome * 100).toFixed(1),
+        Away: +(dnbAway * 100).toFixed(1),
+      },
+    },
+    {
+      market: "ah",
+      label: `Asian Handicap (Home ${homeLineLabel})`,
+      line: homeLine,
+      pick: pHomeCovers >= pAwayCovers ? `Home ${homeLineLabel}` : `Away ${awayLineLabel}`,
+      probabilities: {
+        [`Home ${homeLineLabel}`]: +(pHomeCovers * 100).toFixed(1),
+        [`Away ${awayLineLabel}`]: +(pAwayCovers * 100).toFixed(1),
       },
     },
     {
