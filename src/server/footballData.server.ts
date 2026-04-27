@@ -220,6 +220,13 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       goalsFor = 0,
       goalsAgainst = 0;
     const last5: ("W" | "D" | "L")[] = [];
+    // Time-decay weighting: matches lose half their weight every 90 days.
+    const HALF_LIFE_DAYS = 90;
+    const decayLambda = Math.LN2 / HALF_LIFE_DAYS;
+    const nowMs = Date.now();
+    let wAttack = 0,
+      wDefense = 0,
+      wSum = 0;
     for (const m of matches) {
       const isHome = m.homeTeam.id === teamId;
       const ft = m.score.fullTime;
@@ -234,6 +241,14 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       else if (gf < ga) { losses++; r = "L"; }
       else { draws++; r = "D"; }
       last5.push(r);
+      const ageDays = Math.max(
+        0,
+        (nowMs - new Date(m.utcDate).getTime()) / (1000 * 60 * 60 * 24),
+      );
+      const w = Math.exp(-decayLambda * ageDays);
+      wAttack += gf * w;
+      wDefense += ga * w;
+      wSum += w;
     }
     const form: TeamForm = {
       played,
@@ -243,6 +258,9 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       goalsFor,
       goalsAgainst,
       last5: last5.slice(-5),
+      weightedAttackPerGame: wSum > 0 ? +(wAttack / wSum).toFixed(3) : undefined,
+      weightedDefensePerGame: wSum > 0 ? +(wDefense / wSum).toFixed(3) : undefined,
+      effectiveSample: wSum > 0 ? +wSum.toFixed(2) : undefined,
     };
     await writeCache("team_form_cache", { team_id: teamId, payload: form as unknown });
     return form;
