@@ -492,18 +492,35 @@ function IndexPage() {
             All
             <span className="font-mono text-[10px] opacity-70">{dayMatches.length}</span>
           </Button>
-          {competitions.map(([name, count]) => (
-            <Button
-              key={name}
-              variant={competition === name ? "default" : "secondary"}
-              size="sm"
-              onClick={() => setCompetition(name)}
-              className="shrink-0 gap-1.5"
-            >
-              {name}
-              <span className="font-mono text-[10px] opacity-70">{count}</span>
-            </Button>
-          ))}
+          {competitions.map(([key, count]) => {
+            const [country, league] = key.includes(" — ")
+              ? key.split(" — ")
+              : ["", key];
+            const active = competition === key;
+            return (
+              <Button
+                key={key}
+                variant={active ? "default" : "secondary"}
+                size="sm"
+                onClick={() => setCompetition(key)}
+                className="shrink-0 h-auto py-1.5 gap-2"
+              >
+                <div className="flex flex-col items-start leading-tight text-left">
+                  {country && (
+                    <span
+                      className={`font-mono text-[9px] uppercase tracking-[0.15em] ${
+                        active ? "opacity-80" : "text-muted-foreground"
+                      }`}
+                    >
+                      {country}
+                    </span>
+                  )}
+                  <span className="text-xs font-semibold">{league}</span>
+                </div>
+                <span className="font-mono text-[10px] opacity-70">{count}</span>
+              </Button>
+            );
+          })}
         </div>
       )}
 
