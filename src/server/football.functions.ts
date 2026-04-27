@@ -105,6 +105,38 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
             console.warn("on-demand form backfill failed", e);
           }
         }
+        // Backfill newly-added markets (e.g. home_to_score, away_to_score,
+        // double_chance, dnb, ah) on older cached payloads. If form is
+        // available but any expected market key is missing, recompute.
+        const expectedMarketKeys = [
+          "double_chance",
+          "dnb",
+          "ah",
+          "home_to_score",
+          "away_to_score",
+        ];
+        const havingForm =
+          payload.predictions.homeForm != null && payload.predictions.awayForm != null;
+        const missingMarkets = expectedMarketKeys.some(
+          (k) => !payload.predictions.markets.some((m) => m.market === k),
+        );
+        let marketsBackfilled = false;
+        if (havingForm && missingMarkets) {
+          try {
+            const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
+              payload.predictions.homeForm,
+              payload.predictions.awayForm,
+              payload.predictions.homeInjuries ?? null,
+              payload.predictions.awayInjuries ?? null,
+            );
+            payload.predictions.markets = markets;
+            payload.predictions.expectedGoalsHome = expectedGoalsHome;
+            payload.predictions.expectedGoalsAway = expectedGoalsAway;
+            marketsBackfilled = true;
+          } catch (e) {
+            console.warn("markets backfill failed", e);
+          }
+        }
         if (!payload.predictions.commentary?.trim()) {
           try {
             const commentary = await generateCommentary(payload.match, {
@@ -127,7 +159,7 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
           } catch (e) {
             console.warn("on-demand commentary failed", e);
           }
-        } else if (formBackfilled) {
+        } else if (formBackfilled || marketsBackfilled) {
           // Form changed but commentary already exists — persist the new form.
           try {
             await supabase.from("predictions_cache").upsert({
