@@ -16,6 +16,7 @@ import {
   type BuilderLegId,
 } from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
+import { generateAiBetBuilder, type RiskLevel } from "./aiBetBuilder.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
 import { createClient } from "@supabase/supabase-js";
 
