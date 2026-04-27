@@ -307,59 +307,14 @@ function AccumulatorPage() {
 
           {/* Per-leg rationales */}
           {legs.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {legs.map((l, i) => (
-                <article
+                <LegCard
                   key={l.matchId}
-                  className="rounded-2xl border border-border/60 bg-background/40 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/20 font-mono text-[11px] font-bold text-primary">
-                          {i + 1}
-                        </span>
-                        <Link
-                          to="/match/$matchId"
-                          params={{ matchId: String(l.matchId) }}
-                          className="truncate font-display text-sm font-semibold hover:text-primary"
-                        >
-                          {l.homeTeam} <span className="text-muted-foreground">vs</span> {l.awayTeam}
-                        </Link>
-                      </div>
-                      <div className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                        {l.competition ?? "—"} ·{" "}
-                        {new Date(l.kickoff).toLocaleString(undefined, {
-                          weekday: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="rounded-md bg-secondary/60 px-2 py-0.5 font-mono uppercase tracking-[0.15em]">
-                          {l.marketLabel}
-                        </span>
-                        <b className="text-foreground">{l.selectionLabel}</b>
-                        <span className="font-mono tabular-nums text-primary">
-                          {Math.round(l.probability)}%
-                        </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          fair {l.fairOdds.toFixed(2)}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs italic leading-relaxed text-muted-foreground">
-                        {l.rationale}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => removeLeg(l.matchId)}
-                      className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label="Remove leg"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </article>
+                  leg={l}
+                  index={i}
+                  onRemove={() => removeLeg(l.matchId)}
+                />
               ))}
             </div>
           )}
@@ -558,4 +513,116 @@ function formatMoney(value: number, currency: string): string {
   } catch {
     return `${value.toFixed(2)} ${currency}`;
   }
+}
+
+function LegCard({
+  leg,
+  index,
+  onRemove,
+}: {
+  leg: EditableLeg;
+  index: number;
+  onRemove: () => void;
+}) {
+  const date = new Date(leg.kickoff);
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const day = date.toLocaleDateString(undefined, { weekday: "short" });
+
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-border/60 bg-background/40 transition card-elevated hover:border-primary/40 hover:bg-primary/[0.04] hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.15)]">
+      {/* Full-card click overlay (sits below action buttons via z-index) */}
+      <Link
+        to="/match/$matchId"
+        params={{ matchId: String(leg.matchId) }}
+        className="absolute inset-0 z-10"
+        aria-label={`Open ${leg.homeTeam} vs ${leg.awayTeam}`}
+      />
+      <div className="relative grid grid-cols-1 md:grid-cols-[40px_70px_1fr_auto_36px] items-center gap-3 px-5 py-4">
+        {/* Leg number */}
+        <div className="flex md:justify-center">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 font-mono text-[11px] font-bold text-primary">
+            {index + 1}
+          </span>
+        </div>
+
+        {/* Time */}
+        <div className="flex md:flex-col md:items-start items-center justify-between gap-2">
+          <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
+          <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground md:mt-0.5">
+            {day}
+          </span>
+        </div>
+
+        {/* Match + competition */}
+        <div className="min-w-0">
+          {leg.competition && (
+            <div className="mb-0.5 truncate font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/80">
+              {leg.competition}
+            </div>
+          )}
+          <div className="truncate font-display text-sm font-semibold">
+            {leg.homeTeam}
+            <span className="mx-2 text-muted-foreground">vs</span>
+            {leg.awayTeam}
+          </div>
+        </div>
+
+        {/* Big right-aligned pick CTA */}
+        <div className="flex items-center gap-2">
+          <span className="hidden sm:inline-block rounded-md bg-secondary/60 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
+            {leg.marketLabel}
+          </span>
+          <div className="flex flex-col items-center gap-0.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5">
+            <span className="max-w-[180px] truncate font-mono text-[10px] uppercase tracking-[0.15em] text-primary">
+              {leg.selectionLabel}
+            </span>
+            <span className="font-display text-base font-bold tabular-nums text-primary">
+              {Math.round(leg.probability)}%
+            </span>
+          </div>
+        </div>
+
+        {/* Remove */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="relative z-20 hidden md:flex h-8 w-8 items-center justify-center justify-self-end rounded-md border border-border/60 bg-background/60 text-muted-foreground transition hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Remove leg"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Rationale + fair odds footer */}
+      <div className="relative border-t border-border/40 bg-secondary/20 px-5 py-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <p className="flex-1 text-xs italic leading-relaxed text-muted-foreground">
+            {leg.rationale}
+          </p>
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+            fair {leg.fairOdds.toFixed(2)}
+          </span>
+        </div>
+      </div>
+
+      {/* Mobile remove button */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onRemove();
+        }}
+        className="relative z-20 md:hidden flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        aria-label="Remove leg"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        Remove leg
+      </button>
+    </div>
+  );
 }
