@@ -183,7 +183,7 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
   .inputValidator((input: { computeBudget?: number } | undefined) => input ?? {})
   .handler(async ({ data }) => {
     try {
-      const computeBudget = data.computeBudget ?? 6;
+      const computeBudget = data.computeBudget ?? 20;
       const supabase = adminClient();
 
       // 1. Today's fixtures
