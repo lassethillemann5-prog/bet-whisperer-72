@@ -180,12 +180,25 @@ function IndexPage() {
   const loadTodayPredictions = async () => {
     setTodayBusy(true);
     try {
-      const res = await getTodayPredictions({ data: { computeBudget: 8 } });
+      // First call: pull cached + compute up to N. Then keep calling in the
+      // background until no fixtures remain pending (each call computes the
+      // next batch). This makes the picks fill in quickly without waiting
+      // on a single huge server call.
+      let res = await getTodayPredictions({ data: { computeBudget: 20 } });
       setTodayRows(res.rows);
       setTodayMissing(res.missing);
       setTodayComputed(res.computed);
       setTodayLoaded(true);
       if (res.error) toast.error(res.error);
+
+      let safety = 8; // cap total follow-up rounds
+      while (res.missing > 0 && safety-- > 0) {
+        res = await getTodayPredictions({ data: { computeBudget: 20 } });
+        setTodayRows(res.rows);
+        setTodayMissing(res.missing);
+        setTodayComputed((c) => c + res.computed);
+        if (res.computed === 0) break; // nothing progressed — stop
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load today's picks");
     } finally {
