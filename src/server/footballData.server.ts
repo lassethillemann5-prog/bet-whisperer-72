@@ -214,6 +214,19 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
       `/fixtures?team=${teamId}&last=${limit}&status=FT`,
     );
     const matches = (data.response ?? []).map(toMatchSummary).slice(-limit);
+    // Debug: surface how many finished fixtures the API actually returned
+    // for this team. Helps diagnose "every game has identical predictions"
+    // (which happens when most teams come back with 0 matches and the model
+    // falls back to the league-average prior).
+    console.log(
+      `[teamForm] team=${teamId} returned=${matches.length}/${limit} ` +
+        (matches.length === 0
+          ? "NO_DATA — model will use league-average prior"
+          : `last=${matches
+              .slice(-3)
+              .map((m) => m.utcDate.slice(0, 10))
+              .join(",")}`),
+    );
     let played = 0,
       wins = 0,
       draws = 0,
