@@ -1,7 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { LogOut, Activity, Star, LayoutGrid, Wallet, Layers, Hammer, BarChart3 } from "lucide-react";
+import { LogOut, Activity, Star, LayoutGrid, Wallet, Layers, Hammer, BarChart3, Radio } from "lucide-react";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOut, loading } = useAuth();
@@ -43,6 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <nav className="hidden items-center gap-1 md:flex">
             {navItem("/", "Fixtures", LayoutGrid)}
+            {navItem("/live", "Live", Radio)}
             {navItem("/stats", "Stats", BarChart3)}
             {navItem("/tracked", "Tracked", Star)}
             {navItem("/accumulator", "Accumulator", Layers)}
@@ -76,6 +77,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="flex gap-1 border-t border-border/60 px-3 py-2 md:hidden">
           {navItem("/", "Fixtures", LayoutGrid)}
+          {navItem("/live", "Live", Radio)}
           {navItem("/stats", "Stats", BarChart3)}
           {navItem("/tracked", "Tracked", Star)}
           {navItem("/accumulator", "Accumulator", Layers)}
