@@ -315,6 +315,22 @@ function extendedCandidates(
       }
     }
   }
+  if (market === "any" || market === "home_to_score") {
+    const hts = findM("home_to_score");
+    if (hts) {
+      for (const [sel, prob] of Object.entries(hts.probabilities)) {
+        out.push({ ...base, market: "home_to_score", marketLabel: "Home to Score", selection: sel, selectionLabel: `${base.homeTeam} to score: ${sel}`, probability: prob });
+      }
+    }
+  }
+  if (market === "any" || market === "away_to_score") {
+    const ats = findM("away_to_score");
+    if (ats) {
+      for (const [sel, prob] of Object.entries(ats.probabilities)) {
+        out.push({ ...base, market: "away_to_score", marketLabel: "Away to Score", selection: sel, selectionLabel: `${base.awayTeam} to score: ${sel}`, probability: prob });
+      }
+    }
+  }
   return out;
 }
 
