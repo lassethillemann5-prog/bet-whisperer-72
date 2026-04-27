@@ -980,9 +980,9 @@ function TodaysPicksPanel({
 
 function PicksTable({ rows }: { rows: TodayPickRow[] }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/60 card-elevated">
-      {/* Desktop header */}
-      <div className="hidden md:grid grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 border-b border-border/50 bg-secondary/30 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+    <div className="space-y-2.5">
+      {/* Desktop header (above the cards) */}
+      <div className="hidden md:grid grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 px-5 pb-1 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
         <div>Time</div>
         <div>Match</div>
         <div className="text-center">1 · X · 2</div>
@@ -991,11 +991,9 @@ function PicksTable({ rows }: { rows: TodayPickRow[] }) {
         <div className="text-center">Best pick</div>
         <div />
       </div>
-      <div className="divide-y divide-border/50">
-        {rows.map((row) => (
-          <PickTableRow key={row.match.id} row={row} />
-        ))}
-      </div>
+      {rows.map((row) => (
+        <PickTableRow key={row.match.id} row={row} />
+      ))}
     </div>
   );
 }
@@ -1006,16 +1004,25 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
   const [expanded, setExpanded] = useState(false);
   const hasExtras =
     !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore);
+  const noData = row.noData === true;
 
   return (
-    <div className="transition hover:bg-primary/[0.04]">
-      <div className="grid grid-cols-1 md:grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 px-4 py-4">
-        <Link
-          to="/match/$matchId"
-          params={{ matchId: String(row.match.id) }}
-          className="contents"
-        >
-      {/* Time */}
+    <div
+      className={`group relative overflow-hidden rounded-2xl border transition card-elevated ${
+        noData
+          ? "border-border/40 bg-background/40 opacity-70"
+          : "border-border/60 hover:border-primary/40 hover:bg-primary/[0.04] hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.15)]"
+      }`}
+    >
+      {/* Full-card click overlay (sits below the chevron via z-index) */}
+      <Link
+        to="/match/$matchId"
+        params={{ matchId: String(row.match.id) }}
+        className="absolute inset-0 z-10"
+        aria-label={`Open ${row.match.homeTeam.name} vs ${row.match.awayTeam.name}`}
+      />
+      <div className="relative grid grid-cols-1 md:grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 px-5 py-4">
+        {/* Time */}
       <div className="flex md:flex-col md:items-start items-center justify-between gap-2">
         <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
         <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground md:mt-0.5">
@@ -1039,7 +1046,9 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
 
       {/* 1X2 */}
       <div>
-        {row.oneXTwo ? (
+        {noData ? (
+          <NoDataCell />
+        ) : row.oneXTwo ? (
           <div className="grid grid-cols-3 gap-1">
             <ProbCell label="1" value={row.oneXTwo.home} highlight={isMax(row.oneXTwo.home, [row.oneXTwo.home, row.oneXTwo.draw, row.oneXTwo.away])} />
             <ProbCell label="X" value={row.oneXTwo.draw} highlight={isMax(row.oneXTwo.draw, [row.oneXTwo.home, row.oneXTwo.draw, row.oneXTwo.away])} />
@@ -1052,7 +1061,9 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
 
       {/* O/U 2.5 */}
       <div>
-        {row.ou25 ? (
+        {noData ? (
+          <NoDataCell />
+        ) : row.ou25 ? (
           <div className="grid grid-cols-2 gap-1">
             <ProbCell label="O" value={row.ou25.over} highlight={row.ou25.over >= row.ou25.under} />
             <ProbCell label="U" value={row.ou25.under} highlight={row.ou25.under > row.ou25.over} />
@@ -1064,7 +1075,9 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
 
       {/* BTTS */}
       <div>
-        {row.btts ? (
+        {noData ? (
+          <NoDataCell />
+        ) : row.btts ? (
           <div className="grid grid-cols-2 gap-1">
             <ProbCell label="Y" value={row.btts.yes} highlight={row.btts.yes >= row.btts.no} />
             <ProbCell label="N" value={row.btts.no} highlight={row.btts.no > row.btts.yes} />
@@ -1076,7 +1089,11 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
 
       {/* Best pick */}
       <div className="flex justify-center">
-        {row.best ? (
+        {noData ? (
+          <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground/60">
+            no form data
+          </span>
+        ) : row.best ? (
           <div className="flex flex-col items-center gap-0.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5">
             <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-primary">
               {row.best.label}
@@ -1089,7 +1106,6 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
           <span className="font-mono text-[11px] text-muted-foreground/60">pending…</span>
         )}
       </div>
-        </Link>
 
         {/* Expand toggle */}
         <button
@@ -1099,10 +1115,10 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
             e.stopPropagation();
             setExpanded((v) => !v);
           }}
-          disabled={!hasExtras}
+          disabled={!hasExtras || noData}
           aria-label={expanded ? "Hide more markets" : "Show more markets"}
           aria-expanded={expanded}
-          className="hidden md:flex h-8 w-8 items-center justify-center justify-self-end rounded-md border border-border/60 text-muted-foreground transition hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30"
+          className="relative z-20 hidden md:flex h-8 w-8 items-center justify-center justify-self-end rounded-md border border-border/60 bg-background/60 text-muted-foreground transition hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30"
         >
           <ChevronDown
             className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -1111,11 +1127,15 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
       </div>
 
       {/* Mobile: show a compact "More" toggle below the row */}
-      {hasExtras && (
+      {hasExtras && !noData && (
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="md:hidden flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:bg-primary/5 hover:text-primary"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          className="relative z-20 md:hidden flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground hover:bg-primary/5 hover:text-primary"
         >
           <ChevronDown
             className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
