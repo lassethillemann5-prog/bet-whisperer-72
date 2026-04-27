@@ -66,6 +66,42 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
         // skip the AI commentary call to save time/credits and persist
         // commentary: "". When a user opens the match detail page we want a
         // real analyst blurb — generate it now, update the cache, and return.
+        // Also: older cached rows may have homeForm/awayForm = null (the
+        // initial fetch came back empty). Try once more on detail-page open
+        // — APIs that were rate-limited or temporarily empty often succeed
+        // on retry, especially after our cache TTL window.
+        let formBackfilled = false;
+        if (payload.predictions.homeForm == null || payload.predictions.awayForm == null) {
+          try {
+            const [hf, af] = await Promise.all([
+              payload.predictions.homeForm == null
+                ? fetchTeamForm(payload.match.homeTeam.id)
+                : Promise.resolve(payload.predictions.homeForm),
+              payload.predictions.awayForm == null
+                ? fetchTeamForm(payload.match.awayTeam.id)
+                : Promise.resolve(payload.predictions.awayForm),
+            ]);
+            if (hf && payload.predictions.homeForm == null) {
+              payload.predictions.homeForm = hf;
+              formBackfilled = true;
+            }
+            if (af && payload.predictions.awayForm == null) {
+              payload.predictions.awayForm = af;
+              formBackfilled = true;
+            }
+            if (formBackfilled) {
+              const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
+                payload.predictions.homeForm,
+                payload.predictions.awayForm,
+              );
+              payload.predictions.markets = markets;
+              payload.predictions.expectedGoalsHome = expectedGoalsHome;
+              payload.predictions.expectedGoalsAway = expectedGoalsAway;
+            }
+          } catch (e) {
+            console.warn("on-demand form backfill failed", e);
+          }
+        }
         if (!payload.predictions.commentary?.trim()) {
           try {
             const commentary = await generateCommentary(payload.match, {
@@ -87,6 +123,17 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
             }
           } catch (e) {
             console.warn("on-demand commentary failed", e);
+          }
+        } else if (formBackfilled) {
+          // Form changed but commentary already exists — persist the new form.
+          try {
+            await supabase.from("predictions_cache").upsert({
+              match_id: matchId,
+              payload: payload as unknown,
+              updated_at: new Date().toISOString(),
+            });
+          } catch (e) {
+            console.warn("form backfill cache update skipped", e);
           }
         }
         return payload;
