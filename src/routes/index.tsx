@@ -286,11 +286,10 @@ function IndexPage() {
     if (sortBy === "time") {
       arr.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
     } else {
-      // Popularity: rank by competition tier, then by kickoff time.
+      // Featured leagues first, then alphabetical by country, then kickoff.
       arr.sort((a, b) => {
-        const pa = competitionPopularity(a.competition?.name);
-        const pb = competitionPopularity(b.competition?.name);
-        if (pa !== pb) return pb - pa;
+        const c = compareCompetitions(a.competition, b.competition);
+        if (c !== 0) return c;
         return new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime();
       });
     }
@@ -320,12 +319,8 @@ function IndexPage() {
         const eb = Math.min(...b[1].map((m) => new Date(m.utcDate).getTime()));
         return ea - eb;
       }
-      // Popularity ranks by league name only — country prefix doesn't matter.
-      const pa = competitionPopularity(a[1][0]?.competition?.name);
-      const pb = competitionPopularity(b[1][0]?.competition?.name);
-      if (pa !== pb) return pb - pa;
-      if (b[1].length !== a[1].length) return b[1].length - a[1].length;
-      return a[0].localeCompare(b[0]);
+      // Featured leagues first, then alphabetical by country + league name.
+      return compareCompetitions(a[1][0]?.competition, b[1][0]?.competition);
     });
   }, [shownMatches, sortBy]);
 
