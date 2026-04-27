@@ -237,6 +237,8 @@ export interface TodayPickRow {
   awayToScore: { yes: number; no: number; pick: string } | null;
   best: { market: string; selection: string; label: string; probability: number } | null;
   cached: boolean;
+  /** True when the prediction is just a league-average fallback (no real form data). */
+  noData?: boolean;
 }
 
 function extractMarkets(predictions: MatchPredictions): {
