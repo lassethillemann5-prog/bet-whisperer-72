@@ -244,6 +244,10 @@ export function predictMarkets(
   const expCorners = 10.3 * (0.6 + 0.4 * goalsScaler);
   const expShots = 24 * (0.7 + 0.3 * goalsScaler);
   const expSoT = 8.5 * (0.7 + 0.3 * goalsScaler);
+  // Cards per match ≈ 3.7 league average. Slight positive correlation with
+  // attacking intent / goals (more action → more fouls), so we apply a mild
+  // scaler around the goals baseline.
+  const expCards = 3.7 * (0.85 + 0.15 * goalsScaler);
 
   const markets: MarketPrediction[] = [
     {
@@ -375,6 +379,17 @@ export function predictMarkets(
       probabilities: {
         "Over 8.5": +(Math.min(95, Math.max(5, 50 + (expSoT - 8.5) * 8))).toFixed(1),
         "Under 8.5": +(Math.min(95, Math.max(5, 50 - (expSoT - 8.5) * 8))).toFixed(1),
+      },
+    },
+    {
+      market: "cards",
+      label: "Total Cards",
+      line: 3.5,
+      expected: +expCards.toFixed(1),
+      pick: expCards >= 3.5 ? "Over 3.5" : "Under 3.5",
+      probabilities: {
+        "Over 3.5": +(Math.min(95, Math.max(5, 50 + (expCards - 3.5) * 18))).toFixed(1),
+        "Under 3.5": +(Math.min(95, Math.max(5, 50 - (expCards - 3.5) * 18))).toFixed(1),
       },
     },
   ];
