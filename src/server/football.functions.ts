@@ -536,6 +536,25 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
           };
         }
         const ext = extractMarkets(cached.payload.predictions);
+        const hasForm =
+          cached.payload.predictions.homeForm != null &&
+          cached.payload.predictions.awayForm != null;
+        if (!hasForm) {
+          return {
+            match: f,
+            oneXTwo: null,
+            ou25: null,
+            btts: null,
+            doubleChance: null,
+            dnb: null,
+            ah: null,
+            homeToScore: null,
+            awayToScore: null,
+            best: null,
+            cached: true,
+            noData: true,
+          };
+        }
         return {
           match: f,
           ...ext,
