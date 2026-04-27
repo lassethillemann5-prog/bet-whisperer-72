@@ -1003,7 +1003,7 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
   const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   const [expanded, setExpanded] = useState(false);
   const hasExtras =
-    !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore);
+    !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore || row.cards);
   const noData = row.noData === true;
 
   return (
