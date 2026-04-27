@@ -6,6 +6,7 @@ import {
   fetchTeamForm,
   fetchTeamInjuries,
   fetchUpcomingMatches,
+  fetchFinishedFixtures,
 } from "./footballData.server";
 import { predictMarkets } from "@/lib/football/predictor";
 import {
@@ -1793,6 +1794,243 @@ export const getAiBetBuilder = createServerFn({ method: "POST" })
         conflicts: [],
         legProbabilities: null,
         error: e instanceof Error ? e.message : "AI generator failed",
+      };
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Stats: per-market hit rate over recently finished matches
+// ---------------------------------------------------------------------------
+
+export interface MarketStat {
+  market: string;
+  label: string;
+  hits: number;
+  total: number;
+  hitRate: number; // 0..100
+}
+
+export interface StatsResponse {
+  windowDays: number;
+  totalMatchesGraded: number;
+  perMarket: MarketStat[];
+  bestPick: MarketStat & { byMarket: MarketStat[] };
+  error: string | null;
+}
+
+/**
+ * Grade a single cached prediction against the actual final score.
+ * Returns a map of marketKey -> true/false (won/lost). Markets that
+ * cannot be graded from goals alone (corners, shots, …) are omitted.
+ */
+function gradePredictions(
+  predictions: MatchPredictions,
+  finalHome: number,
+  finalAway: number,
+): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  const totalGoals = finalHome + finalAway;
+  const result: "1" | "X" | "2" =
+    finalHome > finalAway ? "1" : finalHome < finalAway ? "2" : "X";
+
+  for (const m of predictions.markets) {
+    const pick = m.pick;
+    switch (m.market) {
+      case "1x2":
+        out["1x2"] =
+          (pick === "Home" && result === "1") ||
+          (pick === "Draw" && result === "X") ||
+          (pick === "Away" && result === "2") ||
+          pick === result;
+        break;
+      case "ou_25":
+        out["ou_25"] =
+          (pick.startsWith("Over") && totalGoals > 2.5) ||
+          (pick.startsWith("Under") && totalGoals < 2.5);
+        break;
+      case "ou_15":
+        out["ou_15"] =
+          (pick.startsWith("Over") && totalGoals > 1.5) ||
+          (pick.startsWith("Under") && totalGoals < 1.5);
+        break;
+      case "btts": {
+        const btts = finalHome > 0 && finalAway > 0;
+        out["btts"] =
+          (pick === "Yes" && btts) || (pick === "No" && !btts);
+        break;
+      }
+      case "double_chance":
+        out["double_chance"] =
+          (pick.includes("1X") && (result === "1" || result === "X")) ||
+          (pick.includes("12") && (result === "1" || result === "2")) ||
+          (pick.includes("X2") && (result === "X" || result === "2"));
+        break;
+      case "dnb":
+        if (result === "X") break; // push, ignore
+        out["dnb"] =
+          (pick === "Home" && result === "1") ||
+          (pick === "Away" && result === "2");
+        break;
+      case "home_to_score": {
+        const yes = finalHome > 0;
+        out["home_to_score"] =
+          (pick === "Yes" && yes) || (pick === "No" && !yes);
+        break;
+      }
+      case "away_to_score": {
+        const yes = finalAway > 0;
+        out["away_to_score"] =
+          (pick === "Yes" && yes) || (pick === "No" && !yes);
+        break;
+      }
+      case "ah": {
+        // Asian handicap on the home team. line is the handicap applied to home.
+        // pick label is e.g. "Home -0.5" or "Away +0.5".
+        const line = typeof m.line === "number" ? m.line : 0;
+        const adjHome = finalHome + line;
+        if (adjHome === finalAway) break; // push
+        const homeCovers = adjHome > finalAway;
+        out["ah"] =
+          (pick.startsWith("Home") && homeCovers) ||
+          (pick.startsWith("Away") && !homeCovers);
+        break;
+      }
+      // cards/corners/shots: cannot grade without play-by-play stats
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
+const MARKET_LABELS: Record<string, string> = {
+  "1x2": "Match Result (1X2)",
+  ou_25: "Over/Under 2.5 Goals",
+  ou_15: "Over/Under 1.5 Goals",
+  btts: "Both Teams To Score",
+  double_chance: "Double Chance",
+  dnb: "Draw No Bet",
+  ah: "Asian Handicap",
+  home_to_score: "Home to Score",
+  away_to_score: "Away to Score",
+};
+
+export const getStats = createServerFn({ method: "POST" })
+  .inputValidator((input: { days?: number } | undefined) => input ?? {})
+  .handler(async ({ data }): Promise<StatsResponse> => {
+    const windowDays = Math.max(1, Math.min(30, data.days ?? 7));
+    try {
+      const supabase = adminClient();
+      // 1. Finished matches in window
+      const finished = await fetchFinishedFixtures(windowDays);
+      if (finished.length === 0) {
+        return {
+          windowDays,
+          totalMatchesGraded: 0,
+          perMarket: [],
+          bestPick: { market: "best", label: "Best Pick", hits: 0, total: 0, hitRate: 0, byMarket: [] },
+          error: null,
+        };
+      }
+
+      // 2. Pull cached predictions for these match ids
+      const ids = finished.map((f) => f.id);
+      // Supabase 'in' has practical URL-length limits; chunk into 200-id batches.
+      const cacheMap = new Map<number, { match: MatchSummary; predictions: MatchPredictions }>();
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200);
+        const { data: rows } = await supabase
+          .from("predictions_cache")
+          .select("match_id, payload")
+          .in("match_id", chunk);
+        for (const r of rows ?? []) {
+          cacheMap.set(
+            r.match_id as number,
+            r.payload as unknown as { match: MatchSummary; predictions: MatchPredictions },
+          );
+        }
+      }
+
+      // 3. Grade each
+      const tally: Record<string, { hits: number; total: number }> = {};
+      const bestByMarket: Record<string, { hits: number; total: number }> = {};
+      let bestHits = 0;
+      let bestTotal = 0;
+      let graded = 0;
+
+      for (const f of finished) {
+        const cached = cacheMap.get(f.id);
+        if (!cached) continue;
+        if (!cached.predictions.homeForm || !cached.predictions.awayForm) continue;
+        const fh = f.score.fullTime.home;
+        const fa = f.score.fullTime.away;
+        if (fh == null || fa == null) continue;
+        graded++;
+
+        const results = gradePredictions(cached.predictions, fh, fa);
+        for (const [k, won] of Object.entries(results)) {
+          if (!tally[k]) tally[k] = { hits: 0, total: 0 };
+          tally[k].total++;
+          if (won) tally[k].hits++;
+        }
+
+        // Best pick: highest-probability candidate among 1x2 / ou_25 / btts
+        const ext = extractMarkets(cached.predictions);
+        if (ext.best) {
+          const bm = ext.best.market;
+          const won = results[bm];
+          if (typeof won === "boolean") {
+            bestTotal++;
+            if (won) bestHits++;
+            if (!bestByMarket[bm]) bestByMarket[bm] = { hits: 0, total: 0 };
+            bestByMarket[bm].total++;
+            if (won) bestByMarket[bm].hits++;
+          }
+        }
+      }
+
+      const perMarket: MarketStat[] = Object.entries(tally)
+        .map(([market, v]) => ({
+          market,
+          label: MARKET_LABELS[market] ?? market,
+          hits: v.hits,
+          total: v.total,
+          hitRate: v.total > 0 ? +((v.hits / v.total) * 100).toFixed(1) : 0,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+      const byMarket: MarketStat[] = Object.entries(bestByMarket)
+        .map(([market, v]) => ({
+          market,
+          label: MARKET_LABELS[market] ?? market,
+          hits: v.hits,
+          total: v.total,
+          hitRate: v.total > 0 ? +((v.hits / v.total) * 100).toFixed(1) : 0,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+      return {
+        windowDays,
+        totalMatchesGraded: graded,
+        perMarket,
+        bestPick: {
+          market: "best",
+          label: "Best Pick (model top choice)",
+          hits: bestHits,
+          total: bestTotal,
+          hitRate: bestTotal > 0 ? +((bestHits / bestTotal) * 100).toFixed(1) : 0,
+          byMarket,
+        },
+        error: null,
+      };
+    } catch (e) {
+      console.error("getStats failed", e);
+      return {
+        windowDays,
+        totalMatchesGraded: 0,
+        perMarket: [],
+        bestPick: { market: "best", label: "Best Pick", hits: 0, total: 0, hitRate: 0, byMarket: [] },
+        error: e instanceof Error ? e.message : "Failed to load stats",
       };
     }
   });
