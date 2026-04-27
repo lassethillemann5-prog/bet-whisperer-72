@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   getBetBuilder,
+  getAiBetBuilder,
   getFixtures,
   type BetBuilderResponse,
 } from "@/server/football.functions";
@@ -22,6 +23,7 @@ import {
   Trash2,
   X,
   Calendar,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
