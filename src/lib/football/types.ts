@@ -8,7 +8,9 @@ export type MarketKey =
   | "shots_on_target"
   | "double_chance"
   | "dnb"
-  | "ah";
+  | "ah"
+  | "home_to_score"
+  | "away_to_score";
 
 export interface TeamForm {
   played: number;
