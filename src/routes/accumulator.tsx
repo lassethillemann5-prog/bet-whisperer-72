@@ -274,6 +274,9 @@ function AccumulatorPage() {
                     <SelectItem value="1x2">Match Result (1X2) only</SelectItem>
                     <SelectItem value="ou_25">Over/Under 2.5 only</SelectItem>
                     <SelectItem value="btts">BTTS only</SelectItem>
+                    <SelectItem value="double_chance">Double Chance only</SelectItem>
+                    <SelectItem value="dnb">Draw No Bet only</SelectItem>
+                    <SelectItem value="ah">Asian Handicap only</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
