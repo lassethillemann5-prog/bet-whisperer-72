@@ -454,6 +454,10 @@ export interface LiveScore {
   minute: number | null; // elapsed minutes when in-play
   home: number | null;
   away: number | null;
+  homeTeam?: { id: number; name: string; crest?: string | null } | null;
+  awayTeam?: { id: number; name: string; crest?: string | null } | null;
+  competition?: { id?: number; name: string; emblem?: string | null; country?: string | null } | null;
+  utcDate?: string | null;
 }
 
 const LIVE_TTL_MS = 25_000; // dedupe concurrent callers within 25s
@@ -470,6 +474,16 @@ export async function fetchLiveScores(): Promise<LiveScore[]> {
       minute: typeof f.fixture.status.elapsed === "number" ? f.fixture.status.elapsed : null,
       home: f.goals?.home ?? null,
       away: f.goals?.away ?? null,
+      homeTeam: f.teams?.home
+        ? { id: f.teams.home.id, name: f.teams.home.name, crest: f.teams.home.logo ?? null }
+        : null,
+      awayTeam: f.teams?.away
+        ? { id: f.teams.away.id, name: f.teams.away.name, crest: f.teams.away.logo ?? null }
+        : null,
+      competition: f.league
+        ? { id: f.league.id, name: f.league.name, emblem: f.league.logo ?? null, country: f.league.country ?? null }
+        : null,
+      utcDate: f.fixture?.date ?? null,
     }));
     liveCache = { at: Date.now(), data: out };
     return out;
