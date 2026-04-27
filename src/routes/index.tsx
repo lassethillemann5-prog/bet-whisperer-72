@@ -84,6 +84,28 @@ function competitionPopularity(name?: string | null): number {
   return 10;
 }
 
+// True if the competition is in the curated "featured" set (any tier match).
+function isFeaturedCompetition(name?: string | null): boolean {
+  return competitionPopularity(name) > 10;
+}
+
+// Comparator: featured leagues first, then everything alphabetical by
+// country, then league name. Used for popularity sort mode.
+function compareCompetitions(
+  a: { name?: string | null; country?: string | null } | null | undefined,
+  b: { name?: string | null; country?: string | null } | null | undefined,
+): number {
+  const fa = isFeaturedCompetition(a?.name);
+  const fb = isFeaturedCompetition(b?.name);
+  if (fa !== fb) return fa ? -1 : 1;
+  const ca = (a?.country ?? "").toLowerCase();
+  const cb = (b?.country ?? "").toLowerCase();
+  if (ca !== cb) return ca.localeCompare(cb);
+  const na = (a?.name ?? "").toLowerCase();
+  const nb = (b?.name ?? "").toLowerCase();
+  return na.localeCompare(nb);
+}
+
 /**
  * Stable identifier for a competition that disambiguates leagues sharing the
  * same name across countries (e.g. "Premier League" exists in England, Russia,
