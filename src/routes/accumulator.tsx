@@ -277,6 +277,8 @@ function AccumulatorPage() {
                     <SelectItem value="double_chance">Double Chance only</SelectItem>
                     <SelectItem value="dnb">Draw No Bet only</SelectItem>
                     <SelectItem value="ah">Asian Handicap only</SelectItem>
+                    <SelectItem value="home_to_score">Home to Score only</SelectItem>
+                    <SelectItem value="away_to_score">Away to Score only</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
