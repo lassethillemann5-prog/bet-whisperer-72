@@ -725,3 +725,80 @@ function formatMoney(value: number, currency: string): string {
     return `${value.toFixed(2)} ${currency}`;
   }
 }
+
+function AiBuilderPanel({
+  risk,
+  onRiskChange,
+  busy,
+  rationale,
+  onGenerate,
+}: {
+  risk: "safe" | "balanced" | "longshot";
+  onRiskChange: (r: "safe" | "balanced" | "longshot") => void;
+  busy: boolean;
+  rationale: string | null;
+  onGenerate: () => void;
+}) {
+  const RISKS: Array<{
+    id: "safe" | "balanced" | "longshot";
+    label: string;
+    sub: string;
+  }> = [
+    { id: "safe", label: "Safe", sub: "~1.5–2.2" },
+    { id: "balanced", label: "Balanced", sub: "~2.6–4.5" },
+    { id: "longshot", label: "Longshot", sub: "~5.5–12" },
+  ];
+  return (
+    <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-secondary/30 to-background/40 p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <Wand2 className="h-4 w-4 text-primary" />
+        <h2 className="font-display text-lg font-bold">AI Bet Builder</h2>
+        <span className="ml-auto font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
+          gemini · same-game multi
+        </span>
+      </div>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Let the model pick a correlated, non-conflicting set of legs from the cached match probabilities. You can still tweak the result.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-xl border border-border/50 bg-background/40 p-1">
+          {RISKS.map((r) => {
+            const active = risk === r.id;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => onRiskChange(r.id)}
+                className={`rounded-lg px-3 py-1.5 text-xs transition ${
+                  active
+                    ? "bg-primary/20 text-primary"
+                    : "text-foreground/70 hover:text-foreground"
+                }`}
+              >
+                <span className="font-semibold">{r.label}</span>
+                <span className="ml-1.5 font-mono text-[10px] opacity-70">{r.sub}</span>
+              </button>
+            );
+          })}
+        </div>
+        <Button
+          size="sm"
+          className="ml-auto gap-2"
+          onClick={onGenerate}
+          disabled={busy}
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {busy ? "Generating…" : "Generate"}
+        </Button>
+      </div>
+      {rationale && (
+        <div className="mt-3 rounded-xl border border-primary/20 bg-background/60 p-3">
+          <div className="mb-1 font-mono text-[9px] uppercase tracking-[0.2em] text-primary">
+            AI rationale
+          </div>
+          <p className="text-sm leading-relaxed text-foreground/90">{rationale}</p>
+        </div>
+      )}
+    </div>
+  );
+}
