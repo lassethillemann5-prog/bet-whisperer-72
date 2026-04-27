@@ -307,59 +307,14 @@ function AccumulatorPage() {
 
           {/* Per-leg rationales */}
           {legs.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {legs.map((l, i) => (
-                <article
+                <LegCard
                   key={l.matchId}
-                  className="rounded-2xl border border-border/60 bg-background/40 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/20 font-mono text-[11px] font-bold text-primary">
-                          {i + 1}
-                        </span>
-                        <Link
-                          to="/match/$matchId"
-                          params={{ matchId: String(l.matchId) }}
-                          className="truncate font-display text-sm font-semibold hover:text-primary"
-                        >
-                          {l.homeTeam} <span className="text-muted-foreground">vs</span> {l.awayTeam}
-                        </Link>
-                      </div>
-                      <div className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                        {l.competition ?? "—"} ·{" "}
-                        {new Date(l.kickoff).toLocaleString(undefined, {
-                          weekday: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="rounded-md bg-secondary/60 px-2 py-0.5 font-mono uppercase tracking-[0.15em]">
-                          {l.marketLabel}
-                        </span>
-                        <b className="text-foreground">{l.selectionLabel}</b>
-                        <span className="font-mono tabular-nums text-primary">
-                          {Math.round(l.probability)}%
-                        </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          fair {l.fairOdds.toFixed(2)}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs italic leading-relaxed text-muted-foreground">
-                        {l.rationale}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => removeLeg(l.matchId)}
-                      className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label="Remove leg"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </article>
+                  leg={l}
+                  index={i}
+                  onRemove={() => removeLeg(l.matchId)}
+                />
               ))}
             </div>
           )}
