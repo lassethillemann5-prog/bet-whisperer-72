@@ -557,6 +557,7 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
             ah: null,
             homeToScore: null,
             awayToScore: null,
+            cards: null,
             best: null,
             cached: false,
           };
@@ -576,6 +577,7 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
             ah: null,
             homeToScore: null,
             awayToScore: null,
+            cards: null,
             best: null,
             cached: true,
             noData: true,
