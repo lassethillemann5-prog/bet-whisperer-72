@@ -122,6 +122,7 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
           "ah",
           "home_to_score",
           "away_to_score",
+          "cards",
         ];
         const havingForm =
           payload.predictions.homeForm != null && payload.predictions.awayForm != null;
