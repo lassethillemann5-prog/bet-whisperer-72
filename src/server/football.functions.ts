@@ -488,6 +488,8 @@ function marketLabel(m: CoachMarket): string {
     case "double_chance": return "Double Chance";
     case "dnb": return "Draw No Bet";
     case "ah": return "Asian Handicap";
+    case "home_to_score": return "Home Team to Score";
+    case "away_to_score": return "Away Team to Score";
     default: return "Any market";
   }
 }
