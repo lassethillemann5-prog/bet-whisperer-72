@@ -24,6 +24,14 @@ export interface TeamForm {
   weightedDefensePerGame?: number;
   /** Effective sample size after weighting (used for reliability blending). */
   effectiveSample?: number;
+  /**
+   * xG-based attack/defense per game (time-decay weighted, same 90-day
+   * half-life as the goals-based stats). When present these are blended into
+   * the rate used by the predictor (xG signal is ~30% more predictive than
+   * raw goals, per our offline 2023-24 EPL fit).
+   */
+  weightedXgForPerGame?: number;
+  weightedXgAgainstPerGame?: number;
 }
 
 export interface MatchSummary {

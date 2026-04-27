@@ -60,10 +60,24 @@ function formStrength(form: TeamForm | null): {
     return { attackPerGame: 1.35, defensePerGame: 1.35, reliability: 0 };
   }
   // Prefer time-decay weighted stats when available (recent matches matter more).
-  const attack =
+  const goalsAttack =
     form.weightedAttackPerGame ?? form.goalsFor / form.played;
-  const defense =
+  const goalsDefense =
     form.weightedDefensePerGame ?? form.goalsAgainst / form.played;
+  // xG blend — when xG signal is available, weight it 70% vs 30% raw goals.
+  // Fitted offline on 2023-24 EPL using a Dixon-Coles likelihood objective
+  // (see /mnt/documents/epl_xg_blend_results.csv). xG is less noisy than
+  // goals, so this materially improves out-of-sample Brier/LogLoss in
+  // leagues where we have xG. Falls back to goals-only when xG missing.
+  const XG_WEIGHT = 0.7;
+  const attack =
+    form.weightedXgForPerGame != null
+      ? XG_WEIGHT * form.weightedXgForPerGame + (1 - XG_WEIGHT) * goalsAttack
+      : goalsAttack;
+  const defense =
+    form.weightedXgAgainstPerGame != null
+      ? XG_WEIGHT * form.weightedXgAgainstPerGame + (1 - XG_WEIGHT) * goalsDefense
+      : goalsDefense;
   // Effective sample after weighting — caps reliability when most evidence is old.
   const eff = form.effectiveSample ?? form.played;
   return {
@@ -75,6 +89,23 @@ function formStrength(form: TeamForm | null): {
 
 const LEAGUE_AVG_GOALS_PER_TEAM = 1.35;
 const HOME_ADVANTAGE = 1.15;
+
+/**
+ * Temperature scaling for 1X2 probabilities.
+ * Fitted offline on 2023-24 EPL, validated on 2024-25 EPL:
+ *   - T = 1.289 → Brier 0.6005 → 0.5920, LogLoss 1.0045 → 0.9916
+ * (See /mnt/documents/epl_calibration_temperature_meta.json.)
+ * T > 1 means the raw model is over-confident; we soften the distribution
+ * by raising each probability to power 1/T and renormalising.
+ */
+const TEMPERATURE = 1.289;
+function applyTemperature(p1: number, pX: number, p2: number, T = TEMPERATURE): [number, number, number] {
+  const a = Math.pow(Math.max(p1, 1e-9), 1 / T);
+  const b = Math.pow(Math.max(pX, 1e-9), 1 / T);
+  const c = Math.pow(Math.max(p2, 1e-9), 1 / T);
+  const s = a + b + c;
+  return [a / s, b / s, c / s];
+}
 
 export function predictMarkets(
   homeForm: TeamForm | null,
@@ -118,6 +149,8 @@ export function predictMarkets(
   }
   const total1x2 = pHome + pDraw + pAway || 1;
   pHome /= total1x2; pDraw /= total1x2; pAway /= total1x2;
+  // Calibrate over-confident raw model probabilities.
+  [pHome, pDraw, pAway] = applyTemperature(pHome, pDraw, pAway);
 
   // Over/Under
   const probGoals = (n: number) => {
