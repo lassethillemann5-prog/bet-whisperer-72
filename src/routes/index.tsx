@@ -1018,6 +1018,7 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
   const hasExtras =
     !!(row.doubleChance || row.dnb || row.ah || row.homeToScore || row.awayToScore || row.cards);
   const noData = row.noData === true;
+  const live = useLive(row.match.id);
 
   return (
     <div
@@ -1037,10 +1038,19 @@ function PickTableRow({ row }: { row: TodayPickRow }) {
       <div className="relative grid grid-cols-1 md:grid-cols-[70px_1.6fr_1.3fr_1fr_1fr_1.1fr_36px] items-center gap-3 px-5 py-4">
         {/* Time */}
       <div className="flex md:flex-col md:items-start items-center justify-between gap-2">
-        <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
-        <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground md:mt-0.5">
-          today
-        </span>
+        {live ? (
+          <>
+            <LiveBadge score={live} />
+            <LiveScoreLine score={live} />
+          </>
+        ) : (
+          <>
+            <span className="font-mono text-sm font-bold tabular-nums">{time}</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground md:mt-0.5">
+              today
+            </span>
+          </>
+        )}
       </div>
 
       {/* Match */}
