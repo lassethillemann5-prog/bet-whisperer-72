@@ -6,7 +6,7 @@ import { getMatchH2H, getMatchWithPredictions, type H2HResponse } from "@/server
 import type { MatchPredictions, MatchSummary, MarketPrediction } from "@/lib/football/types";
 import { listTracked, trackMatch, untrackMatch } from "@/lib/football/tracked";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, History, Sparkles, Star, StarOff, TrendingUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, History, Sparkles, Star, StarOff, TrendingUp } from "lucide-react";
 import { Activity } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
@@ -506,21 +506,38 @@ function FairOddsSection({
   match: MatchSummary;
   markets: MarketPrediction[];
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <section className="mt-6 rounded-2xl border border-border/60 card-elevated p-5">
-      <div className="mb-1 flex items-center gap-2">
+    <section className="mt-6 overflow-hidden rounded-2xl border border-border/60 card-elevated">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-primary/[0.04]"
+        aria-expanded={open}
+      >
         <TrendingUp className="h-4 w-4 text-primary" />
-        <h2 className="font-display text-lg font-bold">Fair odds</h2>
-      </div>
-      <p className="mb-4 text-xs text-muted-foreground">
-        Model-derived fair odds (1 / probability). Take a price above fair to bet with positive expected value.
-      </p>
-
-      <div className="space-y-3">
-        {markets.map((m) => (
-          <FairOddsMarket key={m.market} match={match} m={m} />
-        ))}
-      </div>
+        <div className="flex-1">
+          <div className="font-display text-lg font-bold leading-tight">Fair odds</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            {markets.length} markets · model-derived (1 / probability)
+          </div>
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-border/40 p-5">
+          <p className="mb-4 text-xs text-muted-foreground">
+            Take a price above fair odds to bet with positive expected value.
+          </p>
+          <div className="space-y-3">
+            {markets.map((m) => (
+              <FairOddsMarket key={m.market} match={match} m={m} />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
