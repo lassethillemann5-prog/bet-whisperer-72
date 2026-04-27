@@ -31,6 +31,7 @@ import {
   Trophy,
   Activity,
   RefreshCw,
+  LineChart as LineChartIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -182,7 +183,7 @@ function BankrollPage() {
 
       {bankroll && (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">
             <StatCard
               icon={<Wallet className="h-4 w-4" />}
               label="Current bankroll"
@@ -220,6 +221,23 @@ function BankrollPage() {
               value={`${stats.yieldPct >= 0 ? "+" : ""}${stats.yieldPct.toFixed(1)}%`}
               sub={`${stats.totalBets} bets · avg @${stats.avgOdds.toFixed(2)}`}
               tone={stats.yieldPct >= 0 ? "good" : "bad"}
+            />
+            <StatCard
+              icon={<LineChartIcon className="h-4 w-4" />}
+              label="CLV"
+              value={
+                stats.clvSample > 0
+                  ? `${stats.avgClvPct >= 0 ? "+" : ""}${stats.avgClvPct.toFixed(2)}%`
+                  : "—"
+              }
+              sub={
+                stats.clvSample > 0
+                  ? `${(stats.beatCloseRate * 100).toFixed(0)}% beat close · ${stats.clvSample} sample`
+                  : "Auto-captured at settle"
+              }
+              tone={
+                stats.clvSample === 0 ? "neutral" : stats.avgClvPct >= 0 ? "good" : "bad"
+              }
             />
           </div>
 
