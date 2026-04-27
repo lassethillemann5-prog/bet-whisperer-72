@@ -1204,6 +1204,16 @@ function ExtraMarketsPanel({ row }: { row: TodayPickRow }) {
             ]}
           />
         )}
+        {row.cards && (
+          <ExtraMarketCard
+            title={`Cards O/U ${row.cards.line}`}
+            pick={row.cards.pick}
+            entries={[
+              [`Over ${row.cards.line}`, row.cards.over],
+              [`Under ${row.cards.line}`, row.cards.under],
+            ]}
+          />
+        )}
       </div>
     </div>
   );
