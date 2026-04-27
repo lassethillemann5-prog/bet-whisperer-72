@@ -14,45 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      backtest_runs: {
-        Row: {
-          accuracy: number
-          brier_score: number
-          created_at: string
-          id: string
-          log_loss: number
-          market_breakdown: Json
-          matches_tested: number
-          notes: string | null
-          roi_pct: number
-          window_days: number
-        }
-        Insert: {
-          accuracy: number
-          brier_score: number
-          created_at?: string
-          id?: string
-          log_loss: number
-          market_breakdown?: Json
-          matches_tested: number
-          notes?: string | null
-          roi_pct: number
-          window_days: number
-        }
-        Update: {
-          accuracy?: number
-          brier_score?: number
-          created_at?: string
-          id?: string
-          log_loss?: number
-          market_breakdown?: Json
-          matches_tested?: number
-          notes?: string | null
-          roi_pct?: number
-          window_days?: number
-        }
-        Relationships: []
-      }
       bankroll_settings: {
         Row: {
           created_at: string
