@@ -720,8 +720,8 @@ function TodaysPicksPanel({
   const competitions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of upcomingRows) {
-      const name = r.match.competition?.name ?? "Other";
-      counts.set(name, (counts.get(name) ?? 0) + 1);
+      const key = competitionKey(r.match.competition);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [upcomingRows]);
@@ -729,7 +729,7 @@ function TodaysPicksPanel({
   const filtered = useMemo(() => {
     let out = upcomingRows;
     if (pickComp !== "all") {
-      out = out.filter((r) => (r.match.competition?.name ?? "Other") === pickComp);
+      out = out.filter((r) => competitionKey(r.match.competition) === pickComp);
     }
     if (pickMarket !== "all") {
       out = out.filter((r) => r.best?.market === pickMarket);
@@ -743,7 +743,8 @@ function TodaysPicksPanel({
         (r) =>
           r.match.homeTeam.name.toLowerCase().includes(q) ||
           r.match.awayTeam.name.toLowerCase().includes(q) ||
-          r.match.competition?.name?.toLowerCase().includes(q),
+          r.match.competition?.name?.toLowerCase().includes(q) ||
+          r.match.competition?.country?.toLowerCase().includes(q),
       );
     }
     return out;
