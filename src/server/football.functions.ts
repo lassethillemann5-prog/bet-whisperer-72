@@ -524,6 +524,11 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
             oneXTwo: null,
             ou25: null,
             btts: null,
+            doubleChance: null,
+            dnb: null,
+            ah: null,
+            homeToScore: null,
+            awayToScore: null,
             best: null,
             cached: false,
           };
