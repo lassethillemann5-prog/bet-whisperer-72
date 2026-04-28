@@ -225,6 +225,56 @@ function Commentary({ text }: { text: string }) {
   );
 }
 
+function LiveSection({
+  matchId,
+  preds,
+}: {
+  matchId: number;
+  preds: MatchPredictions;
+}) {
+  const live = useLiveScores();
+  const score = live.get(matchId);
+  if (!score) return null;
+  // Don't render for not-yet-started or fully finished matches
+  const status = score.status;
+  const isLiveOrHt = ["1H", "HT", "2H", "ET", "BT", "P", "LIVE"].includes(status);
+  if (!isLiveOrHt) return null;
+  return (
+    <section className="mt-6 overflow-hidden rounded-2xl border border-destructive/40 bg-destructive/[0.04] p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <LiveBadge score={score} />
+          <span className="font-display text-sm font-bold">In-play probabilities</span>
+        </div>
+        <span className="font-mono text-xs tabular-nums text-foreground">
+          {score.home ?? 0}–{score.away ?? 0}
+        </span>
+      </div>
+      <LiveProbabilityBar
+        preMatchXgHome={preds.expectedGoalsHome}
+        preMatchXgAway={preds.expectedGoalsAway}
+        score={score}
+        variant="full"
+      />
+      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        Recomputed every 30s from pre-match xG + live score
+      </p>
+    </section>
+  );
+}
+
+function CommentaryDeprecated({ text }: { text: string }) {
+  return (
+    <section className="mt-6 rounded-2xl border border-primary/30 bg-primary/5 p-5">
+      <div className="mb-2 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+        <Sparkles className="h-3 w-3" />
+        AI analyst
+      </div>
+      <p className="text-sm leading-relaxed text-foreground/90 md:text-base">{text}</p>
+    </section>
+  );
+}
+
 function MarketsGrid({ markets }: { markets: MarketPrediction[] }) {
   const [open, setOpen] = useState(false);
   // Best pick: highest single-selection probability across all markets.
