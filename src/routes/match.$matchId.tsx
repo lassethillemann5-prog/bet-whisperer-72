@@ -10,6 +10,9 @@ import { ArrowLeft, ChevronDown, History, Sparkles, Star, StarOff, TrendingUp } 
 import { Activity } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
+import { useLiveScores } from "@/lib/football/useLiveScores";
+import { LiveProbabilityBar } from "@/components/app/LiveProbabilityBar";
+import { LiveBadge } from "@/components/app/LiveBadge";
 
 export const Route = createFileRoute("/match/$matchId")({
   component: MatchPage,
@@ -106,6 +109,10 @@ function MatchPage() {
             preds={data.predictions}
             isTracked={isTracked}
             onToggle={toggleTrack}
+          />
+          <LiveSection
+            matchId={data.match.id}
+            preds={data.predictions}
           />
           <Commentary text={data.predictions.commentary} />
           <MarketsGrid markets={data.predictions.markets} />
@@ -214,6 +221,44 @@ function Commentary({ text }: { text: string }) {
         AI analyst
       </div>
       <p className="text-sm leading-relaxed text-foreground/90 md:text-base">{text}</p>
+    </section>
+  );
+}
+
+function LiveSection({
+  matchId,
+  preds,
+}: {
+  matchId: number;
+  preds: MatchPredictions;
+}) {
+  const live = useLiveScores();
+  const score = live.get(matchId);
+  if (!score) return null;
+  // Don't render for not-yet-started or fully finished matches
+  const status = score.status;
+  const isLiveOrHt = ["1H", "HT", "2H", "ET", "BT", "P", "LIVE"].includes(status);
+  if (!isLiveOrHt) return null;
+  return (
+    <section className="mt-6 overflow-hidden rounded-2xl border border-destructive/40 bg-destructive/[0.04] p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <LiveBadge score={score} />
+          <span className="font-display text-sm font-bold">In-play probabilities</span>
+        </div>
+        <span className="font-mono text-xs tabular-nums text-foreground">
+          {score.home ?? 0}–{score.away ?? 0}
+        </span>
+      </div>
+      <LiveProbabilityBar
+        preMatchXgHome={preds.expectedGoalsHome}
+        preMatchXgAway={preds.expectedGoalsAway}
+        score={score}
+        variant="full"
+      />
+      <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        Recomputed every 30s from pre-match xG + live score
+      </p>
     </section>
   );
 }

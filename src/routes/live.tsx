@@ -1,9 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app/AppShell";
 import { useLiveScores, type LiveScoreLite } from "@/lib/football/useLiveScores";
 import { LiveBadge, LiveScoreLine } from "@/components/app/LiveBadge";
+import { useCachedXg } from "@/lib/football/useCachedXg";
+import { LiveProbabilityBar } from "@/components/app/LiveProbabilityBar";
 import { Activity, RadioTower } from "lucide-react";
 
 export const Route = createFileRoute("/live")({
@@ -20,6 +22,8 @@ function LivePage() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const live = useLiveScores();
+  const liveIds = useMemo(() => Array.from(live.keys()), [live]);
+  const xgMap = useCachedXg(liveIds);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -87,7 +91,7 @@ function LivePage() {
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {rows.map((s) => (
-                  <LiveCard key={s.id} score={s} />
+                  <LiveCard key={s.id} score={s} xg={xgMap.get(s.id) ?? null} />
                 ))}
               </div>
             </section>
@@ -98,7 +102,13 @@ function LivePage() {
   );
 }
 
-function LiveCard({ score }: { score: LiveScoreLite }) {
+function LiveCard({
+  score,
+  xg,
+}: {
+  score: LiveScoreLite;
+  xg: { home: number; away: number } | null;
+}) {
   const home = score.homeTeam?.name ?? "Home";
   const away = score.awayTeam?.name ?? "Away";
   return (
@@ -119,6 +129,15 @@ function LiveCard({ score }: { score: LiveScoreLite }) {
           <LiveScoreLine score={score} />
           <TeamSide name={away} crest={score.awayTeam?.crest ?? null} align="left" />
         </div>
+        {xg && (
+          <div className="mt-4 border-t border-border/50 pt-3">
+            <LiveProbabilityBar
+              preMatchXgHome={xg.home}
+              preMatchXgAway={xg.away}
+              score={score}
+            />
+          </div>
+        )}
       </div>
     </Link>
   );
