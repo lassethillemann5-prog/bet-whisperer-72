@@ -10,6 +10,9 @@ import { ArrowLeft, ChevronDown, History, Sparkles, Star, StarOff, TrendingUp } 
 import { Activity } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
+import { useLiveScores } from "@/lib/football/useLiveScores";
+import { LiveProbabilityBar } from "@/components/app/LiveProbabilityBar";
+import { LiveBadge } from "@/components/app/LiveBadge";
 
 export const Route = createFileRoute("/match/$matchId")({
   component: MatchPage,
@@ -106,6 +109,10 @@ function MatchPage() {
             preds={data.predictions}
             isTracked={isTracked}
             onToggle={toggleTrack}
+          />
+          <LiveSection
+            matchId={data.match.id}
+            preds={data.predictions}
           />
           <Commentary text={data.predictions.commentary} />
           <MarketsGrid markets={data.predictions.markets} />
