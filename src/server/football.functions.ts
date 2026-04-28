@@ -2060,3 +2060,38 @@ export const getLiveScores = createServerFn({ method: "GET" })
       };
     }
   });
+
+// ---------------------------------------------------------------------------
+// Pre-match xG lookup for live in-play probability calculations.
+// Pure DB read of `predictions_cache` — costs zero football-API credits.
+// ---------------------------------------------------------------------------
+
+export const getCachedPreMatchXg = createServerFn({ method: "POST" })
+  .inputValidator((input: { matchIds: number[] }) => input)
+  .handler(async ({ data }) => {
+    if (!data.matchIds || data.matchIds.length === 0) {
+      return { xg: {} as Record<number, { home: number; away: number }>, error: null };
+    }
+    try {
+      const supabase = adminClient();
+      const ids = Array.from(new Set(data.matchIds.map((n) => Number(n)))).slice(0, 100);
+      const { data: rows, error } = await supabase
+        .from("predictions_cache")
+        .select("match_id, payload")
+        .in("match_id", ids);
+      if (error) throw error;
+      const out: Record<number, { home: number; away: number }> = {};
+      for (const row of rows ?? []) {
+        const p = (row as { payload?: { predictions?: { expectedGoalsHome?: number; expectedGoalsAway?: number } } }).payload;
+        const xgH = p?.predictions?.expectedGoalsHome;
+        const xgA = p?.predictions?.expectedGoalsAway;
+        if (typeof xgH === "number" && typeof xgA === "number") {
+          out[Number((row as { match_id: number }).match_id)] = { home: xgH, away: xgA };
+        }
+      }
+      return { xg: out, error: null as string | null };
+    } catch (e) {
+      console.error("getCachedPreMatchXg failed", e);
+      return { xg: {} as Record<number, { home: number; away: number }>, error: e instanceof Error ? e.message : "Failed" };
+    }
+  });
