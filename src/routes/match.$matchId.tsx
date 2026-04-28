@@ -263,18 +263,6 @@ function LiveSection({
   );
 }
 
-function CommentaryDeprecated({ text }: { text: string }) {
-  return (
-    <section className="mt-6 rounded-2xl border border-primary/30 bg-primary/5 p-5">
-      <div className="mb-2 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
-        <Sparkles className="h-3 w-3" />
-        AI analyst
-      </div>
-      <p className="text-sm leading-relaxed text-foreground/90 md:text-base">{text}</p>
-    </section>
-  );
-}
-
 function MarketsGrid({ markets }: { markets: MarketPrediction[] }) {
   const [open, setOpen] = useState(false);
   // Best pick: highest single-selection probability across all markets.
