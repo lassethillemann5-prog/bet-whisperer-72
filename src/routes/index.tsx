@@ -48,6 +48,22 @@ import { useLiveScores, useLiveScore as useLive, LiveScoresContext } from "@/lib
 import { LiveBadge, LiveScoreLine } from "@/components/app/LiveBadge";
 
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Pitchcast — AI football match predictions, fixtures & live odds" },
+      {
+        name: "description",
+        content:
+          "Browse upcoming football fixtures with AI-powered predictions for 1X2, BTTS, Over/Under goals, corners, shots and same-game multis. Updated daily.",
+      },
+      { property: "og:title", content: "Pitchcast — AI football match predictions" },
+      {
+        property: "og:description",
+        content:
+          "Daily fixtures with statistical + AI predictions across 1X2, BTTS, O/U goals, corners and shots markets.",
+      },
+    ],
+  }),
   component: IndexPage,
 });
 
