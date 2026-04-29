@@ -2095,3 +2095,214 @@ export const getCachedPreMatchXg = createServerFn({ method: "POST" })
       return { xg: {} as Record<number, { home: number; away: number }>, error: e instanceof Error ? e.message : "Failed" };
     }
   });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model accuracy: graded entirely from the predictions_cache.
+// Each cached row stores both the prediction and the final match (when FT).
+// We replay each prediction's "pick" against the actual final score and
+// produce per-market hit-rates. Zero external API calls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MarketAccuracy {
+  market: string;
+  label: string;
+  total: number;
+  hits: number;
+  hitRate: number; // 0..100
+  avgConfidence: number; // 0..100
+}
+
+export interface AccuracyResponse {
+  totalMatches: number;
+  totalPicks: number;
+  totalHits: number;
+  overallHitRate: number;
+  markets: MarketAccuracy[];
+  recent: Array<{
+    matchId: number;
+    home: string;
+    away: string;
+    competition: string | null;
+    finalScore: string;
+    utcDate: string;
+    pickHits: number;
+    pickTotal: number;
+  }>;
+  error: string | null;
+}
+
+function gradePick(
+  market: string,
+  pick: string,
+  homeGoals: number,
+  awayGoals: number,
+): boolean | null {
+  const total = homeGoals + awayGoals;
+  const homeWin = homeGoals > awayGoals;
+  const draw = homeGoals === awayGoals;
+  const awayWin = awayGoals > homeGoals;
+  const btts = homeGoals > 0 && awayGoals > 0;
+
+  switch (market) {
+    case "1x2": {
+      if (pick.startsWith("1")) return homeWin;
+      if (pick.startsWith("X")) return draw;
+      if (pick.startsWith("2")) return awayWin;
+      return null;
+    }
+    case "ou_15":
+      return pick.toLowerCase().startsWith("over") ? total > 1.5 : total < 1.5;
+    case "ou_25":
+      return pick.toLowerCase().startsWith("over") ? total > 2.5 : total < 2.5;
+    case "btts":
+      return pick.toLowerCase() === "yes" ? btts : !btts;
+    case "home_to_score":
+      return pick.toLowerCase() === "yes" ? homeGoals > 0 : homeGoals === 0;
+    case "away_to_score":
+      return pick.toLowerCase() === "yes" ? awayGoals > 0 : awayGoals === 0;
+    case "double_chance": {
+      if (pick.startsWith("1X")) return homeWin || draw;
+      if (pick.startsWith("X2")) return awayWin || draw;
+      if (pick.startsWith("12")) return homeWin || awayWin;
+      return null;
+    }
+    case "dnb": {
+      if (draw) return null; // push — exclude from accuracy
+      if (pick.toLowerCase().includes("home")) return homeWin;
+      if (pick.toLowerCase().includes("away")) return awayWin;
+      return null;
+    }
+    // corners / shots / cards aren't gradable from the score alone.
+    default:
+      return null;
+  }
+}
+
+const MARKET_LABELS: Record<string, string> = {
+  "1x2": "Match Result (1X2)",
+  ou_15: "Over/Under 1.5",
+  ou_25: "Over/Under 2.5",
+  btts: "Both Teams To Score",
+  home_to_score: "Home Team to Score",
+  away_to_score: "Away Team to Score",
+  double_chance: "Double Chance",
+  dnb: "Draw No Bet",
+};
+
+export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AccuracyResponse> => {
+    try {
+      const sb = adminClient();
+      const { data, error } = await sb
+        .from("predictions_cache")
+        .select("match_id, payload, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+
+      const buckets = new Map<string, { hits: number; total: number; conf: number }>();
+      const recent: AccuracyResponse["recent"] = [];
+      let totalMatches = 0;
+      let totalPicks = 0;
+      let totalHits = 0;
+
+      for (const row of data ?? []) {
+        const payload = row.payload as {
+          match?: {
+            id?: number;
+            status?: string;
+            utcDate?: string;
+            score?: { fullTime?: { home: number | null; away: number | null } };
+            homeTeam?: { name?: string };
+            awayTeam?: { name?: string };
+            competition?: { name?: string | null };
+          };
+          predictions?: {
+            markets?: Array<{
+              market: string;
+              pick: string;
+              probabilities: Record<string, number>;
+            }>;
+          };
+        };
+
+        const match = payload?.match;
+        if (!match || match.status !== "FT") continue;
+        const h = match.score?.fullTime?.home;
+        const a = match.score?.fullTime?.away;
+        if (h == null || a == null) continue;
+
+        totalMatches++;
+        let matchHits = 0;
+        let matchPicks = 0;
+
+        for (const m of payload.predictions?.markets ?? []) {
+          if (!MARKET_LABELS[m.market]) continue;
+          const result = gradePick(m.market, m.pick, h, a);
+          if (result === null) continue; // ungradable / push
+          const conf = m.probabilities?.[Object.keys(m.probabilities).find(
+            (k) => m.pick.startsWith(k),
+          ) ?? ""] ?? Math.max(...Object.values(m.probabilities ?? {}), 0);
+
+          const b = buckets.get(m.market) ?? { hits: 0, total: 0, conf: 0 };
+          b.total++;
+          b.conf += conf;
+          if (result) b.hits++;
+          buckets.set(m.market, b);
+
+          totalPicks++;
+          matchPicks++;
+          if (result) {
+            totalHits++;
+            matchHits++;
+          }
+        }
+
+        if (recent.length < 20 && matchPicks > 0) {
+          recent.push({
+            matchId: match.id ?? row.match_id,
+            home: match.homeTeam?.name ?? "Home",
+            away: match.awayTeam?.name ?? "Away",
+            competition: match.competition?.name ?? null,
+            finalScore: `${h}-${a}`,
+            utcDate: match.utcDate ?? "",
+            pickHits: matchHits,
+            pickTotal: matchPicks,
+          });
+        }
+      }
+
+      const markets: MarketAccuracy[] = Array.from(buckets.entries())
+        .map(([market, v]) => ({
+          market,
+          label: MARKET_LABELS[market] ?? market,
+          total: v.total,
+          hits: v.hits,
+          hitRate: v.total > 0 ? (v.hits / v.total) * 100 : 0,
+          avgConfidence: v.total > 0 ? v.conf / v.total : 0,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+      return {
+        totalMatches,
+        totalPicks,
+        totalHits,
+        overallHitRate: totalPicks > 0 ? (totalHits / totalPicks) * 100 : 0,
+        markets,
+        recent,
+        error: null,
+      };
+    } catch (e) {
+      console.error("getModelAccuracy failed", e);
+      return {
+        totalMatches: 0,
+        totalPicks: 0,
+        totalHits: 0,
+        overallHitRate: 0,
+        markets: [],
+        recent: [],
+        error: e instanceof Error ? e.message : "Failed to compute accuracy",
+      };
+    }
+  },
+);
