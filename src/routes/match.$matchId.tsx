@@ -15,6 +15,63 @@ import { LiveProbabilityBar } from "@/components/app/LiveProbabilityBar";
 import { LiveBadge } from "@/components/app/LiveBadge";
 
 export const Route = createFileRoute("/match/$matchId")({
+  loader: async ({ params }) => {
+    // Lightweight loader: fetch just enough to populate <head> metadata.
+    // Falls back gracefully if the call fails — page still renders.
+    try {
+      const res = await getMatchWithPredictions({
+        data: { matchId: Number(params.matchId) },
+      });
+      return {
+        seo: {
+          home: res.match.homeTeam.name,
+          away: res.match.awayTeam.name,
+          competition: res.match.competition?.name ?? null,
+          utcDate: res.match.utcDate,
+          crest: res.match.homeTeam.crest ?? res.match.awayTeam.crest ?? null,
+          pick: res.predictions.markets[0]?.pick ?? null,
+        },
+      };
+    } catch {
+      return { seo: null as null | {
+        home: string; away: string; competition: string | null;
+        utcDate: string; crest: string | null; pick: string | null;
+      } };
+    }
+  },
+  head: ({ loaderData }) => {
+    const seo = loaderData?.seo;
+    if (!seo) {
+      return {
+        meta: [
+          { title: "Match prediction — Pitchcast" },
+          { name: "description", content: "Statistical and AI-powered football match prediction." },
+        ],
+      };
+    }
+    const compSuffix = seo.competition ? ` — ${seo.competition}` : "";
+    const dateLabel = new Date(seo.utcDate).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+    const title = `${seo.home} vs ${seo.away}${compSuffix} prediction · Pitchcast`;
+    const description = `Statistical and AI-driven prediction for ${seo.home} vs ${seo.away}${compSuffix} on ${dateLabel}. 1X2, BTTS, Over/Under goals, corners, shots and more.`;
+    const meta: Array<Record<string, string>> = [
+      { title },
+      { name: "description", content: description },
+      { property: "og:title", content: title },
+      { property: "og:description", content: description },
+      { property: "og:type", content: "article" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: title },
+      { name: "twitter:description", content: description },
+    ];
+    if (seo.crest) {
+      meta.push({ property: "og:image", content: seo.crest });
+      meta.push({ name: "twitter:image", content: seo.crest });
+    }
+    return { meta };
+  },
   component: MatchPage,
 });
 
