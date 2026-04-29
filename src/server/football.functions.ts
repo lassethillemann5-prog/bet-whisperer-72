@@ -2178,7 +2178,7 @@ function gradePick(
   }
 }
 
-const MARKET_LABELS: Record<string, string> = {
+const ACCURACY_MARKET_LABELS: Record<string, string> = {
   "1x2": "Match Result (1X2)",
   ou_15: "Over/Under 1.5",
   ou_25: "Over/Under 2.5",
@@ -2237,7 +2237,7 @@ export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
         let matchPicks = 0;
 
         for (const m of payload.predictions?.markets ?? []) {
-          if (!MARKET_LABELS[m.market]) continue;
+          if (!ACCURACY_MARKET_LABELS[m.market]) continue;
           const result = gradePick(m.market, m.pick, h, a);
           if (result === null) continue; // ungradable / push
           const conf = m.probabilities?.[Object.keys(m.probabilities).find(
@@ -2275,7 +2275,7 @@ export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
       const markets: MarketAccuracy[] = Array.from(buckets.entries())
         .map(([market, v]) => ({
           market,
-          label: MARKET_LABELS[market] ?? market,
+          label: ACCURACY_MARKET_LABELS[market] ?? market,
           total: v.total,
           hits: v.hits,
           hitRate: v.total > 0 ? (v.hits / v.total) * 100 : 0,
