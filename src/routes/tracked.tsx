@@ -8,6 +8,15 @@ import { Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/tracked")({
+  head: () => ({
+    meta: [
+      { title: "Tracked matches — Pitchcast" },
+      {
+        name: "description",
+        content: "Your starred football fixtures and predictions in one place.",
+      },
+    ],
+  }),
   component: TrackedPage,
 });
 
