@@ -13,6 +13,8 @@ import { LogBetDialog } from "@/components/app/LogBetDialog";
 import { useLiveScores } from "@/lib/football/useLiveScores";
 import { LiveProbabilityBar } from "@/components/app/LiveProbabilityBar";
 import { LiveBadge } from "@/components/app/LiveBadge";
+import { FetchOddsButton } from "@/components/app/FetchOddsButton";
+import type { MatchOddsResult, MarketOddsRow } from "@/server/football.functions";
 
 export const Route = createFileRoute("/match/$matchId")({
   loader: async ({ params }) => {
@@ -652,6 +654,17 @@ function FairOddsSection({
   markets: MarketPrediction[];
 }) {
   const [open, setOpen] = useState(false);
+  const [oddsResult, setOddsResult] = useState<MatchOddsResult | null>(null);
+
+  function findOdds(market: string, selection: string): MarketOddsRow | null {
+    if (!oddsResult) return null;
+    return (
+      oddsResult.rows.find(
+        (r) => r.market === market && r.selection.toLowerCase() === selection.toLowerCase(),
+      ) ?? null
+    );
+  }
+
   return (
     <section className="mt-6 overflow-hidden rounded-2xl border border-border/60 card-elevated">
       <button
@@ -662,9 +675,9 @@ function FairOddsSection({
       >
         <TrendingUp className="h-4 w-4 text-primary" />
         <div className="flex-1">
-          <div className="font-display text-lg font-bold leading-tight">Fair odds</div>
+          <div className="font-display text-lg font-bold leading-tight">Fair odds & value</div>
           <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            {markets.length} markets · model-derived (1 / probability)
+            {markets.length} markets · {oddsResult ? "vs bet365 / betano" : "fetch market prices to see edge"}
           </div>
         </div>
         <ChevronDown
@@ -673,12 +686,19 @@ function FairOddsSection({
       </button>
       {open && (
         <div className="border-t border-border/40 p-5">
-          <p className="mb-4 text-xs text-muted-foreground">
-            Take a price above fair odds to bet with positive expected value.
-          </p>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Take a price above fair odds to bet with positive expected value.
+            </p>
+            <FetchOddsButton
+              matchId={match.id}
+              hasOdds={!!oddsResult && oddsResult.rows.length > 0}
+              onFetched={setOddsResult}
+            />
+          </div>
           <div className="space-y-3">
             {markets.map((m) => (
-              <FairOddsMarket key={m.market} match={match} m={m} />
+              <FairOddsMarket key={m.market} match={match} m={m} findOdds={findOdds} />
             ))}
           </div>
         </div>
@@ -753,7 +773,15 @@ function InjuryPanel({ match, preds }: { match: MatchSummary; preds: MatchPredic
   );
 }
 
-function FairOddsMarket({ match, m }: { match: MatchSummary; m: MarketPrediction }) {
+function FairOddsMarket({
+  match,
+  m,
+  findOdds,
+}: {
+  match: MatchSummary;
+  m: MarketPrediction;
+  findOdds: (market: string, selection: string) => MarketOddsRow | null;
+}) {
   const entries = Object.entries(m.probabilities);
   return (
     <div className="rounded-xl border border-border/50 bg-secondary/30 p-4">
@@ -768,6 +796,19 @@ function FairOddsMarket({ match, m }: { match: MatchSummary; m: MarketPrediction
           const prob01 = Math.max(0.001, Math.min(0.999, probPct / 100));
           const fair = 1 / prob01;
           const isPick = selection === m.pick || probPct === Math.max(...entries.map(([, v]) => v));
+          const oddsRow = findOdds(m.market, selection);
+          const market = oddsRow?.best ?? null;
+          const edgePct = market != null ? (prob01 * market - 1) * 100 : null;
+          const edgeColor =
+            edgePct == null
+              ? ""
+              : edgePct >= 5
+              ? "text-primary"
+              : edgePct >= 0.5
+              ? "text-emerald-400"
+              : edgePct >= -0.5
+              ? "text-muted-foreground"
+              : "text-destructive/80";
           return (
             <div
               key={selection}
@@ -780,6 +821,24 @@ function FairOddsMarket({ match, m }: { match: MatchSummary; m: MarketPrediction
                 <div className="font-mono text-[10px] tabular-nums text-muted-foreground">
                   {probPct.toFixed(1)}% · fair {fair.toFixed(2)}
                 </div>
+                {market != null && (
+                  <div className="mt-1 flex items-center gap-2 font-mono text-[10px] tabular-nums">
+                    <span className="text-muted-foreground">market {market.toFixed(2)}</span>
+                    <span className={`font-semibold ${edgeColor}`}>
+                      {edgePct! >= 0 ? "+" : ""}
+                      {edgePct!.toFixed(1)}% edge
+                    </span>
+                  </div>
+                )}
+                {oddsRow && oddsRow.prices.length > 0 && (
+                  <div className="mt-0.5 flex flex-wrap gap-1 font-mono text-[9px] text-muted-foreground/70">
+                    {oddsRow.prices.map((p) => (
+                      <span key={p.bookmaker} className="rounded bg-background/40 px-1">
+                        {p.bookmaker} {p.price.toFixed(2)}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <LogBetDialog
                 seed={{
@@ -790,7 +849,7 @@ function FairOddsMarket({ match, m }: { match: MatchSummary; m: MarketPrediction
                   utcDate: match.utcDate,
                   market: m.market,
                   selection,
-                  decimalOdds: fair,
+                  decimalOdds: market ?? fair,
                   modelProbability: prob01,
                 }}
                 trigger={
