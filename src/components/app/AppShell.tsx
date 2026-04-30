@@ -1,7 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { LogOut, Activity, Star, LayoutGrid, Wallet, Layers, Hammer, BarChart3, Radio } from "lucide-react";
+import { LogOut, Activity, Star, LayoutGrid, Wallet, Layers, Hammer, BarChart3, Radio, FlaskConical } from "lucide-react";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOut, loading } = useAuth();
@@ -45,6 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {navItem("/", "Fixtures", LayoutGrid)}
             {navItem("/live", "Live", Radio)}
             {navItem("/stats", "Stats", BarChart3)}
+            {navItem("/backtest", "Backtest", FlaskConical)}
             {navItem("/tracked", "Tracked", Star)}
             {navItem("/accumulator", "Accumulator", Layers)}
             {navItem("/builder", "Bet Builder", Hammer)}
@@ -79,6 +80,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {navItem("/", "Fixtures", LayoutGrid)}
           {navItem("/live", "Live", Radio)}
           {navItem("/stats", "Stats", BarChart3)}
+          {navItem("/backtest", "Backtest", FlaskConical)}
           {navItem("/tracked", "Tracked", Star)}
           {navItem("/accumulator", "Accumulator", Layers)}
           {navItem("/builder", "Bet Builder", Hammer)}
