@@ -2306,3 +2306,53 @@ export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
     }
   },
 );
+
+// ============================================================================
+// The Odds API — pre-match live odds for value/edge detection.
+// ============================================================================
+
+import { fetchMatchLiveOdds, getOddsApiUsage, type MatchOddsResult } from "./oddsData.server";
+
+export type { MatchOddsResult, BookmakerPrice, MarketOddsRow } from "./oddsData.server";
+
+export const fetchMatchOdds = createServerFn({ method: "POST" })
+  .inputValidator((input: { matchId: number; userId: string; forceRefresh?: boolean }) => input)
+  .handler(async ({ data }): Promise<MatchOddsResult> => {
+    const supabase = adminClient();
+    // Load the match (from cache or live) to get team names for matching
+    const { data: cached } = await supabase
+      .from("predictions_cache")
+      .select("payload")
+      .eq("match_id", data.matchId)
+      .maybeSingle();
+    let match: MatchSummary | null =
+      (cached?.payload as { match?: MatchSummary } | null)?.match ?? null;
+    if (!match) {
+      try {
+        match = await fetchMatch(data.matchId);
+      } catch {
+        match = null;
+      }
+    }
+    if (!match) {
+      return {
+        matchId: data.matchId,
+        rows: [],
+        cacheHit: false,
+        creditsUsed: 0,
+        fetchedAt: new Date().toISOString(),
+        error: "Match not found",
+      };
+    }
+    return await fetchMatchLiveOdds({
+      match,
+      userId: data.userId,
+      forceRefresh: data.forceRefresh,
+    });
+  });
+
+export const getOddsUsage = createServerFn({ method: "POST" })
+  .inputValidator((input: { userId: string }) => input)
+  .handler(async ({ data }) => {
+    return await getOddsApiUsage(data.userId);
+  });
