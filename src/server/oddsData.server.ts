@@ -11,6 +11,12 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const ODDS_BASE = "https://api.the-odds-api.com/v4";
 const CLOSING_ODDS_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30d — closing odds never change
+const LIVE_ODDS_TTL_MS = 1000 * 60 * 30; // 30 min for pre-match live odds
+
+/** Bookmakers we want prices from. Using `bookmakers=` instead of `regions=`
+ *  is cheaper: we pay 1 region price for up to 10 bookmakers. */
+const TARGET_BOOKMAKERS = ["bet365", "betano"] as const;
+const MARKETS_TO_FETCH = ["h2h", "totals", "btts"] as const;
 
 function cacheClient(): SupabaseClient | null {
   const url = process.env.SUPABASE_URL;
@@ -153,6 +159,254 @@ async function writeClosingToCache(matchId: number, market: string, selection: s
     });
   } catch {
     // best-effort
+  }
+}
+
+// ============================================================================
+// Pre-match live odds — used for value/edge detection in the UI.
+// ============================================================================
+
+export interface BookmakerPrice {
+  bookmaker: string; // "bet365" | "betano"
+  price: number;
+}
+
+export interface MarketOddsRow {
+  market: string; // "1x2" | "ou_25" | "ou_15" | "btts"
+  selection: string; // canonical: "1"|"X"|"2", "Over 2.5"|"Under 2.5", "Yes"|"No"
+  prices: BookmakerPrice[];
+  best: number; // best (highest) price across our bookmakers
+}
+
+export interface MatchOddsResult {
+  matchId: number;
+  rows: MarketOddsRow[];
+  cacheHit: boolean;
+  creditsUsed: number;
+  fetchedAt: string;
+  error?: string;
+}
+
+/** Convert The Odds API outcome name back to our internal selection token. */
+function outcomeToSelection(
+  marketKey: string,
+  outcome: OddsApiOutcome,
+  match: MatchSummary,
+): { market: string; selection: string } | null {
+  const name = outcome.name;
+  if (marketKey === "h2h") {
+    if (name === "Draw") return { market: "1x2", selection: "X" };
+    if (name.toLowerCase() === match.homeTeam.name.toLowerCase()) return { market: "1x2", selection: "1" };
+    if (name.toLowerCase() === match.awayTeam.name.toLowerCase()) return { market: "1x2", selection: "2" };
+    return null;
+  }
+  if (marketKey === "totals") {
+    const point = outcome.point;
+    if (point == null) return null;
+    const internal = Math.abs(point - 2.5) < 0.01 ? "ou_25" : Math.abs(point - 1.5) < 0.01 ? "ou_15" : null;
+    if (!internal) return null;
+    if (name.toLowerCase() === "over") return { market: internal, selection: `Over ${point}` };
+    if (name.toLowerCase() === "under") return { market: internal, selection: `Under ${point}` };
+    return null;
+  }
+  if (marketKey === "btts") {
+    if (name.toLowerCase() === "yes") return { market: "btts", selection: "Yes" };
+    if (name.toLowerCase() === "no") return { market: "btts", selection: "No" };
+  }
+  return null;
+}
+
+async function readLiveOddsFromCache(matchId: number): Promise<MatchOddsResult | null> {
+  const sb = cacheClient();
+  if (!sb) return null;
+  try {
+    const { data } = await sb
+      .from("fixtures_cache")
+      .select("payload, updated_at")
+      .eq("cache_key", `live-odds:${matchId}`)
+      .maybeSingle();
+    if (!data?.payload || !data.updated_at) return null;
+    if (Date.now() - new Date(data.updated_at).getTime() > LIVE_ODDS_TTL_MS) return null;
+    return data.payload as MatchOddsResult;
+  } catch {
+    return null;
+  }
+}
+
+async function writeLiveOddsToCache(matchId: number, payload: MatchOddsResult): Promise<void> {
+  const sb = cacheClient();
+  if (!sb) return;
+  try {
+    await sb.from("fixtures_cache").upsert({
+      cache_key: `live-odds:${matchId}`,
+      payload: payload as unknown,
+      updated_at: new Date().toISOString(),
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+async function logUsage(
+  userId: string,
+  matchId: number,
+  market: string,
+  creditsUsed: number,
+  cacheHit: boolean,
+): Promise<void> {
+  const sb = cacheClient();
+  if (!sb) return;
+  try {
+    await sb.from("odds_api_usage").insert({
+      user_id: userId,
+      match_id: matchId,
+      market,
+      credits_used: creditsUsed,
+      cache_hit: cacheHit,
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+/** Fetch pre-match odds for a single match from The Odds API.
+ *  Uses bookmakers=bet365,betano (cheaper than regions=eu).
+ *  Cost when not cached: ~30 credits (3 markets × 1 region × 10 multiplier). */
+export async function fetchMatchLiveOdds(input: {
+  match: MatchSummary;
+  userId: string;
+  forceRefresh?: boolean;
+}): Promise<MatchOddsResult> {
+  const { match, userId, forceRefresh } = input;
+
+  if (!forceRefresh) {
+    const cached = await readLiveOddsFromCache(match.id);
+    if (cached) {
+      await logUsage(userId, match.id, "all", 0, true);
+      return { ...cached, cacheHit: true, creditsUsed: 0 };
+    }
+  }
+
+  const apiKey = getKey();
+  if (!apiKey) {
+    return {
+      matchId: match.id,
+      rows: [],
+      cacheHit: false,
+      creditsUsed: 0,
+      fetchedAt: new Date().toISOString(),
+      error: "ODDS_API_KEY not configured",
+    };
+  }
+
+  try {
+    const url =
+      `${ODDS_BASE}/sports/soccer/odds?apiKey=${apiKey}` +
+      `&bookmakers=${TARGET_BOOKMAKERS.join(",")}` +
+      `&markets=${MARKETS_TO_FETCH.join(",")}` +
+      `&oddsFormat=decimal&dateFormat=iso`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return {
+        matchId: match.id,
+        rows: [],
+        cacheHit: false,
+        creditsUsed: 0,
+        fetchedAt: new Date().toISOString(),
+        error: `The Odds API ${res.status}: ${body.slice(0, 120)}`,
+      };
+    }
+    const events = (await res.json()) as OddsApiEvent[];
+    const ev = events.find((e) => eventMatches(e, match));
+
+    // Estimate credits: markets × regions × 10 (soccer multiplier)
+    const creditsUsed = MARKETS_TO_FETCH.length * 1 * 10;
+
+    if (!ev) {
+      const empty: MatchOddsResult = {
+        matchId: match.id,
+        rows: [],
+        cacheHit: false,
+        creditsUsed,
+        fetchedAt: new Date().toISOString(),
+        error: "No matching event found at bet365/betano",
+      };
+      await writeLiveOddsToCache(match.id, empty);
+      await logUsage(userId, match.id, "all", creditsUsed, false);
+      return empty;
+    }
+
+    // Group: market+selection → bookmaker prices
+    const grouped = new Map<string, MarketOddsRow>();
+    for (const bk of ev.bookmakers) {
+      if (!TARGET_BOOKMAKERS.includes(bk.key as typeof TARGET_BOOKMAKERS[number])) continue;
+      for (const mkt of bk.markets) {
+        for (const out of mkt.outcomes) {
+          const mapped = outcomeToSelection(mkt.key, out, match);
+          if (!mapped) continue;
+          if (!(out.price > 1)) continue;
+          const key = `${mapped.market}::${mapped.selection}`;
+          let row = grouped.get(key);
+          if (!row) {
+            row = { market: mapped.market, selection: mapped.selection, prices: [], best: 0 };
+            grouped.set(key, row);
+          }
+          row.prices.push({ bookmaker: bk.key, price: out.price });
+          if (out.price > row.best) row.best = out.price;
+        }
+      }
+    }
+
+    const result: MatchOddsResult = {
+      matchId: match.id,
+      rows: Array.from(grouped.values()),
+      cacheHit: false,
+      creditsUsed,
+      fetchedAt: new Date().toISOString(),
+    };
+    await writeLiveOddsToCache(match.id, result);
+    await logUsage(userId, match.id, "all", creditsUsed, false);
+    return result;
+  } catch (e) {
+    return {
+      matchId: match.id,
+      rows: [],
+      cacheHit: false,
+      creditsUsed: 0,
+      fetchedAt: new Date().toISOString(),
+      error: e instanceof Error ? e.message : "Unknown error",
+    };
+  }
+}
+
+/** Get monthly credit usage for a user. */
+export async function getOddsApiUsage(userId: string): Promise<{
+  monthCredits: number;
+  monthFetches: number;
+  lastFetchAt: string | null;
+}> {
+  const sb = cacheClient();
+  if (!sb) return { monthCredits: 0, monthFetches: 0, lastFetchAt: null };
+  const start = new Date();
+  start.setUTCDate(1);
+  start.setUTCHours(0, 0, 0, 0);
+  try {
+    const { data } = await sb
+      .from("odds_api_usage")
+      .select("credits_used, created_at")
+      .eq("user_id", userId)
+      .gte("created_at", start.toISOString())
+      .order("created_at", { ascending: false });
+    if (!data) return { monthCredits: 0, monthFetches: 0, lastFetchAt: null };
+    const monthCredits = data.reduce((s, r) => s + (r.credits_used ?? 0), 0);
+    return {
+      monthCredits,
+      monthFetches: data.length,
+      lastFetchAt: data[0]?.created_at ?? null,
+    };
+  } catch {
+    return { monthCredits: 0, monthFetches: 0, lastFetchAt: null };
   }
 }
 

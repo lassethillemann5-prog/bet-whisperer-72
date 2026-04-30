@@ -140,6 +140,36 @@ export type Database = {
         }
         Relationships: []
       }
+      odds_api_usage: {
+        Row: {
+          cache_hit: boolean
+          created_at: string
+          credits_used: number
+          id: string
+          market: string
+          match_id: number | null
+          user_id: string
+        }
+        Insert: {
+          cache_hit?: boolean
+          created_at?: string
+          credits_used?: number
+          id?: string
+          market: string
+          match_id?: number | null
+          user_id: string
+        }
+        Update: {
+          cache_hit?: boolean
+          created_at?: string
+          credits_used?: number
+          id?: string
+          market?: string
+          match_id?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       predictions_cache: {
         Row: {
           created_at: string
