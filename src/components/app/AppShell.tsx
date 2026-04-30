@@ -76,7 +76,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : null}
           </div>
         </div>
-        <div className="flex gap-1 border-t border-border/60 px-3 py-2 md:hidden">
+        <div className="flex flex-wrap gap-1 border-t border-border/60 px-3 py-2 md:hidden">
           {navItem("/", "Fixtures", LayoutGrid)}
           {navItem("/live", "Live", Radio)}
           {navItem("/stats", "Stats", BarChart3)}
