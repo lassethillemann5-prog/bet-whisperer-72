@@ -108,6 +108,108 @@ function applyTemperature(p1: number, pX: number, p2: number, T = TEMPERATURE): 
   return [a / s, b / s, c / s];
 }
 
+/* ============================================================
+ * Backtest variant — same math, but every key constant is
+ * injectable so the parameter tuner / backtester can sweep them.
+ * Kept intentionally minimal: returns only the three markets we
+ * grade (1X2, BTTS, O/U 2.5) plus expected goals.
+ * ==========================================================*/
+export interface BacktestModelConfig {
+  temperature: number;     // calibration T (>=1 softens)
+  homeAdvantage: number;   // multiplicative on lambdaHome
+  dcRho: number;           // Dixon-Coles low-score correction
+  xgWeight: number;        // weight of xG vs raw goals (0..1)
+}
+
+function formStrengthCfg(form: TeamForm | null, xgWeight: number) {
+  if (!form || form.played === 0) {
+    return { attackPerGame: 1.35, defensePerGame: 1.35, reliability: 0 };
+  }
+  const goalsAttack = form.weightedAttackPerGame ?? form.goalsFor / form.played;
+  const goalsDefense = form.weightedDefensePerGame ?? form.goalsAgainst / form.played;
+  const attack =
+    form.weightedXgForPerGame != null
+      ? xgWeight * form.weightedXgForPerGame + (1 - xgWeight) * goalsAttack
+      : goalsAttack;
+  const defense =
+    form.weightedXgAgainstPerGame != null
+      ? xgWeight * form.weightedXgAgainstPerGame + (1 - xgWeight) * goalsDefense
+      : goalsDefense;
+  const eff = form.effectiveSample ?? form.played;
+  return { attackPerGame: attack, defensePerGame: defense, reliability: Math.min(1, eff / 8) };
+}
+
+function buildMatrixCfg(lh: number, la: number, rho: number, maxGoals = 7) {
+  const m: number[][] = [];
+  let total = 0;
+  for (let h = 0; h <= maxGoals; h++) {
+    const row: number[] = [];
+    for (let a = 0; a <= maxGoals; a++) {
+      const p = poisson(h, lh) * poisson(a, la) * dcTau(h, a, lh, la, rho);
+      row.push(p);
+      total += p;
+    }
+    m.push(row);
+  }
+  if (total > 0 && Math.abs(total - 1) > 1e-9) {
+    for (let h = 0; h < m.length; h++)
+      for (let a = 0; a < m[h].length; a++) m[h][a] /= total;
+  }
+  return m;
+}
+
+export function predictForBacktest(
+  homeForm: TeamForm | null,
+  awayForm: TeamForm | null,
+  cfg: BacktestModelConfig,
+): {
+  pHome: number; pDraw: number; pAway: number;
+  pBttsYes: number;
+  pOver25: number;
+  lambdaHome: number; lambdaAway: number;
+} {
+  const h = formStrengthCfg(homeForm, cfg.xgWeight);
+  const a = formStrengthCfg(awayForm, cfg.xgWeight);
+  const lambdaHomeRaw = (h.attackPerGame * a.defensePerGame) / LEAGUE_AVG_GOALS_PER_TEAM;
+  const lambdaAwayRaw = (a.attackPerGame * h.defensePerGame) / LEAGUE_AVG_GOALS_PER_TEAM;
+  const reliability = Math.min(h.reliability, a.reliability);
+  const blend = (raw: number) => reliability * raw + (1 - reliability) * LEAGUE_AVG_GOALS_PER_TEAM;
+  let lambdaHome = blend(lambdaHomeRaw) * cfg.homeAdvantage;
+  let lambdaAway = blend(lambdaAwayRaw);
+  lambdaHome = Math.max(0.3, Math.min(4.0, lambdaHome));
+  lambdaAway = Math.max(0.2, Math.min(3.5, lambdaAway));
+
+  const matrix = buildMatrixCfg(lambdaHome, lambdaAway, cfg.dcRho);
+  let pH = 0, pD = 0, pA = 0, pHome0 = 0, pAway0 = 0, p00 = 0;
+  let p0g = 0, p1g = 0, p2g = 0;
+  for (let hh = 0; hh < matrix.length; hh++) {
+    for (let aa = 0; aa < matrix[hh].length; aa++) {
+      const p = matrix[hh][aa];
+      if (hh > aa) pH += p;
+      else if (hh < aa) pA += p;
+      else pD += p;
+      if (hh === 0) pAway0 += p;
+      if (aa === 0) pHome0 += p;
+      if (hh === 0 && aa === 0) p00 += p;
+      const tot = hh + aa;
+      if (tot === 0) p0g += p;
+      else if (tot === 1) p1g += p;
+      else if (tot === 2) p2g += p;
+    }
+  }
+  const sum = pH + pD + pA || 1;
+  pH /= sum; pD /= sum; pA /= sum;
+  [pH, pD, pA] = applyTemperature(pH, pD, pA, cfg.temperature);
+  const pBttsYes = Math.max(0, Math.min(1, 1 - pHome0 - pAway0 + p00));
+  const pOver25 = Math.max(0, Math.min(1, 1 - p0g - p1g - p2g));
+  return {
+    pHome: pH, pDraw: pD, pAway: pA,
+    pBttsYes,
+    pOver25,
+    lambdaHome, lambdaAway,
+  };
+}
+
 export function predictMarkets(
   homeForm: TeamForm | null,
   awayForm: TeamForm | null,
