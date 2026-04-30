@@ -14,6 +14,93 @@ export type Database = {
   }
   public: {
     Tables: {
+      backtest_runs: {
+        Row: {
+          bets_placed: number | null
+          brier_1x2: number | null
+          brier_btts: number | null
+          brier_ou25: number | null
+          competition_id: string | null
+          competition_name: string | null
+          completed_at: string | null
+          created_at: string
+          date_from: string
+          date_to: string
+          dc_rho: number
+          error_message: string | null
+          hitrate_1x2: number | null
+          home_advantage: number
+          id: string
+          logloss_1x2: number | null
+          matches_scored: number
+          matches_total: number
+          name: string
+          results: Json | null
+          roi_flat: number | null
+          status: string
+          temperature: number
+          updated_at: string
+          user_id: string
+          xg_weight: number
+        }
+        Insert: {
+          bets_placed?: number | null
+          brier_1x2?: number | null
+          brier_btts?: number | null
+          brier_ou25?: number | null
+          competition_id?: string | null
+          competition_name?: string | null
+          completed_at?: string | null
+          created_at?: string
+          date_from: string
+          date_to: string
+          dc_rho?: number
+          error_message?: string | null
+          hitrate_1x2?: number | null
+          home_advantage?: number
+          id?: string
+          logloss_1x2?: number | null
+          matches_scored?: number
+          matches_total?: number
+          name?: string
+          results?: Json | null
+          roi_flat?: number | null
+          status?: string
+          temperature?: number
+          updated_at?: string
+          user_id: string
+          xg_weight?: number
+        }
+        Update: {
+          bets_placed?: number | null
+          brier_1x2?: number | null
+          brier_btts?: number | null
+          brier_ou25?: number | null
+          competition_id?: string | null
+          competition_name?: string | null
+          completed_at?: string | null
+          created_at?: string
+          date_from?: string
+          date_to?: string
+          dc_rho?: number
+          error_message?: string | null
+          hitrate_1x2?: number | null
+          home_advantage?: number
+          id?: string
+          logloss_1x2?: number | null
+          matches_scored?: number
+          matches_total?: number
+          name?: string
+          results?: Json | null
+          roi_flat?: number | null
+          status?: string
+          temperature?: number
+          updated_at?: string
+          user_id?: string
+          xg_weight?: number
+        }
+        Relationships: []
+      }
       bankroll_settings: {
         Row: {
           created_at: string
