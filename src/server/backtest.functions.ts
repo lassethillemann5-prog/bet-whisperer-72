@@ -76,7 +76,7 @@ export const runBacktestFn = createServerFn({ method: "POST" })
           brier_ou25: summary.brier_ou25,
           roi_flat: summary.roi_flat,
           bets_placed: summary.bets_placed,
-          results: summary.predictions as unknown,
+          results: summary.predictions as unknown as never,
           completed_at: new Date().toISOString(),
         })
         .eq("id", runId);
