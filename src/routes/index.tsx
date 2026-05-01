@@ -205,16 +205,16 @@ function IndexPage() {
       // background until no fixtures remain pending (each call computes the
       // next batch). This makes the picks fill in quickly without waiting
       // on a single huge server call.
-      let res = await getTodayPredictions({ data: { computeBudget: 20 } });
+      let res = await getTodayPredictions({ data: { computeBudget: 8 } });
       setTodayRows(res.rows);
       setTodayMissing(res.missing);
       setTodayComputed(res.computed);
       setTodayLoaded(true);
       if (res.error) toast.error(res.error);
 
-      let safety = 8; // cap total follow-up rounds
+      let safety = 20; // cap total follow-up rounds
       while (res.missing > 0 && safety-- > 0) {
-        res = await getTodayPredictions({ data: { computeBudget: 20 } });
+        res = await getTodayPredictions({ data: { computeBudget: 8 } });
         setTodayRows(res.rows);
         setTodayMissing(res.missing);
         setTodayComputed((c) => c + res.computed);
