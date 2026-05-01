@@ -77,19 +77,42 @@ function toMatchSummary(item: ApiSportsFixture): MatchSummary {
 }
 
 async function fdFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "x-apisports-key": getKey() },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`API-SPORTS Football ${res.status}: ${body.slice(0, 200)}`);
+  // Retry on transient 429 (per-minute rate limit) with exponential backoff.
+  // API-Sports free tier allows ~10 req/min — when we burst-compute today's
+  // fixtures we routinely exceed this; rather than fail the whole batch we
+  // wait and retry up to 3 times.
+  let attempt = 0;
+  const maxAttempts = 4;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { "x-apisports-key": getKey() },
+    });
+    if (res.status === 429 && attempt < maxAttempts - 1) {
+      const wait = 1500 * Math.pow(2, attempt) + Math.random() * 500;
+      await new Promise((r) => setTimeout(r, wait));
+      attempt++;
+      continue;
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`API-SPORTS Football ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as T & { errors?: unknown };
+    const errors = json.errors;
+    if (errors && ((Array.isArray(errors) && errors.length > 0) || Object.keys(errors as object).length > 0)) {
+      // API-Sports returns 200 with errors.rateLimit when minute quota is hit
+      const errStr = JSON.stringify(errors);
+      if (errStr.toLowerCase().includes("ratelimit") && attempt < maxAttempts - 1) {
+        const wait = 1500 * Math.pow(2, attempt) + Math.random() * 500;
+        await new Promise((r) => setTimeout(r, wait));
+        attempt++;
+        continue;
+      }
+      throw new Error(`API-SPORTS Football error: ${errStr.slice(0, 200)}`);
+    }
+    return json;
   }
-  const json = (await res.json()) as T & { errors?: unknown };
-  const errors = json.errors;
-  if (errors && ((Array.isArray(errors) && errors.length > 0) || Object.keys(errors as object).length > 0)) {
-    throw new Error(`API-SPORTS Football error: ${JSON.stringify(errors).slice(0, 200)}`);
-  }
-  return json;
 }
 
 /**

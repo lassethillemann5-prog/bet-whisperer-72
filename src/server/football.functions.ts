@@ -507,15 +507,23 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
         );
       });
 
-      // 4. Compute up to computeBudget fresh predictions in parallel
+      // 4. Compute up to computeBudget fresh predictions with limited
+      // concurrency. API-Sports free tier rate-limits to ~10 req/min and
+      // each fixture costs 2 calls (home + away form). Running 20 in
+      // parallel triggered a flood of 429s and left rows pending. We cap
+      // at 3 concurrent fixtures (~6 in-flight requests) which keeps us
+      // under the per-minute ceiling while still progressing quickly.
       const toCompute = missing.slice(0, computeBudget);
-      const computed = await Promise.allSettled(
-        toCompute.map(async (f) => {
-          try {
-            const [homeForm, awayForm] = await Promise.all([
-              fetchTeamForm(f.homeTeam.id),
-              fetchTeamForm(f.awayTeam.id),
-            ]);
+      const CONCURRENCY = 3;
+      const computed: Array<PromiseSettledResult<number | null>> = [];
+      const queue = [...toCompute];
+      const workers: Promise<void>[] = [];
+      const runOne = async (f: typeof toCompute[number]) => {
+        try {
+          const [homeForm, awayForm] = await Promise.all([
+            fetchTeamForm(f.homeTeam.id),
+            fetchTeamForm(f.awayTeam.id),
+          ]);
             const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
               homeForm,
               awayForm,
@@ -542,13 +550,22 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
               console.warn("today cache write skipped", e);
             }
             cacheMap.set(f.id, { payload, fresh: true });
-            return f.id;
-          } catch (e) {
-            console.warn("today predict failed for", f.id, e);
-            return null;
+          computed.push({ status: "fulfilled", value: f.id });
+        } catch (e) {
+          console.warn("today predict failed for", f.id, e);
+          computed.push({ status: "fulfilled", value: null });
+        }
+      };
+      for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+        workers.push((async () => {
+          while (queue.length > 0) {
+            const next = queue.shift();
+            if (!next) break;
+            await runOne(next);
           }
-        }),
-      );
+        })());
+      }
+      await Promise.all(workers);
       const computedCount = computed.filter((r) => r.status === "fulfilled" && r.value).length;
 
       // 5. Build rows
