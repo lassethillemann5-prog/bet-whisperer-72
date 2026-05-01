@@ -227,13 +227,16 @@ function IndexPage() {
     }
   };
 
-  // Lazy-load today's predictions the first time the picks tab is opened
+  // Auto-load today's best picks as soon as the user is signed in — don't
+  // wait for them to switch tabs or open individual fixtures. This makes the
+  // "Best pick per match" column populate in the background while they
+  // browse, so picks are ready the moment they look.
   useEffect(() => {
-    if (tab === "picks" && !todayLoaded && !todayBusy && user) {
+    if (user && !todayLoaded && !todayBusy) {
       void loadTodayPredictions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, todayLoaded, user]);
+  }, [user, todayLoaded]);
 
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
 
