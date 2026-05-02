@@ -136,15 +136,18 @@ async function buildContext(userId: string) {
     .order("utc_date", { ascending: true })
     .limit(20);
 
-  // Today's & tomorrow's fixtures with cached predictions
+  // ALL of today's fixtures (UTC day) — same scope as the dashboard's
+  // "Today's picks" so the coach can reason about every match the user
+  // sees, not just a short 36h window.
   const all = await fetchUpcomingMatches(2).catch(() => [] as MatchSummary[]);
-  const now = Date.now();
-  const upcoming = all
-    .filter((m) => new Date(m.utcDate).getTime() > now)
-    .filter((m) => {
-      const dt = new Date(m.utcDate).getTime();
-      return dt - now < 1000 * 60 * 60 * 36; // next 36h
-    });
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const upcoming = all.filter((m) => {
+    const d = new Date(m.utcDate);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return key === todayKey;
+  });
+  upcoming.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
   const ids = upcoming.map((m) => m.id);
 
   let picks: CompactPick[] = [];
@@ -167,9 +170,10 @@ async function buildContext(userId: string) {
         return summarisePredictions(cached.match, cached.predictions);
       })
       .filter((x): x is CompactPick => x != null)
-      // top 25 by best probability so the prompt stays small
-      .sort((a, b) => (b.best?.probability ?? 0) - (a.best?.probability ?? 0))
-      .slice(0, 25);
+      // Sort by best probability so the highest-confidence picks come first
+      // in the prompt, but include EVERY match from today (no 25-cap) so the
+      // coach can answer about any fixture the user asks about.
+      .sort((a, b) => (b.best?.probability ?? 0) - (a.best?.probability ?? 0));
   }
 
   return {
