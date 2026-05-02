@@ -15,6 +15,7 @@ import {
   Trophy,
   CheckCircle2,
   XCircle,
+  Activity,
 } from "lucide-react";
 
 export const Route = createFileRoute("/stats")({
@@ -103,10 +104,10 @@ function StatsPage() {
   const [accuracy, setAccuracy] = useState<AccuracyResponse | null>(null);
   const [accuracyBusy, setAccuracyBusy] = useState(false);
   const [accuracyLoaded, setAccuracyLoaded] = useState(false);
-  const [tab, setTab] = useState<"recent" | "lifetime">("recent");
+  const [tab, setTab] = useState<"recent" | "lifetime" | "calibration">("recent");
 
   useEffect(() => {
-    if (tab !== "lifetime" || accuracyLoaded || accuracyBusy) return;
+    if ((tab !== "lifetime" && tab !== "calibration") || accuracyLoaded || accuracyBusy) return;
     setAccuracyBusy(true);
     getModelAccuracy()
       .then((r) => {
@@ -132,7 +133,7 @@ function StatsPage() {
           </p>
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "recent" | "lifetime")}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "recent" | "lifetime" | "calibration")}>
           <TabsList className="h-10 p-1">
             <TabsTrigger value="recent" className="gap-1.5">
               <TrendingUp className="h-3.5 w-3.5" />
@@ -142,6 +143,10 @@ function StatsPage() {
               <Trophy className="h-3.5 w-3.5" />
               Lifetime
             </TabsTrigger>
+            <TabsTrigger value="calibration" className="gap-1.5">
+              <Activity className="h-3.5 w-3.5" />
+              Calibration
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="recent" className="mt-6">
@@ -150,6 +155,10 @@ function StatsPage() {
 
           <TabsContent value="lifetime" className="mt-6">
             <LifetimeTab data={accuracy} busy={accuracyBusy} />
+          </TabsContent>
+
+          <TabsContent value="calibration" className="mt-6">
+            <CalibrationTab data={accuracy} busy={accuracyBusy} />
           </TabsContent>
         </Tabs>
       </div>
