@@ -15,6 +15,7 @@ import {
   Trophy,
   CheckCircle2,
   XCircle,
+  Activity,
 } from "lucide-react";
 
 export const Route = createFileRoute("/stats")({
@@ -103,10 +104,10 @@ function StatsPage() {
   const [accuracy, setAccuracy] = useState<AccuracyResponse | null>(null);
   const [accuracyBusy, setAccuracyBusy] = useState(false);
   const [accuracyLoaded, setAccuracyLoaded] = useState(false);
-  const [tab, setTab] = useState<"recent" | "lifetime">("recent");
+  const [tab, setTab] = useState<"recent" | "lifetime" | "calibration">("recent");
 
   useEffect(() => {
-    if (tab !== "lifetime" || accuracyLoaded || accuracyBusy) return;
+    if ((tab !== "lifetime" && tab !== "calibration") || accuracyLoaded || accuracyBusy) return;
     setAccuracyBusy(true);
     getModelAccuracy()
       .then((r) => {
@@ -132,7 +133,7 @@ function StatsPage() {
           </p>
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "recent" | "lifetime")}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "recent" | "lifetime" | "calibration")}>
           <TabsList className="h-10 p-1">
             <TabsTrigger value="recent" className="gap-1.5">
               <TrendingUp className="h-3.5 w-3.5" />
@@ -142,6 +143,10 @@ function StatsPage() {
               <Trophy className="h-3.5 w-3.5" />
               Lifetime
             </TabsTrigger>
+            <TabsTrigger value="calibration" className="gap-1.5">
+              <Activity className="h-3.5 w-3.5" />
+              Calibration
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="recent" className="mt-6">
@@ -150,6 +155,10 @@ function StatsPage() {
 
           <TabsContent value="lifetime" className="mt-6">
             <LifetimeTab data={accuracy} busy={accuracyBusy} />
+          </TabsContent>
+
+          <TabsContent value="calibration" className="mt-6">
+            <CalibrationTab data={accuracy} busy={accuracyBusy} />
           </TabsContent>
         </Tabs>
       </div>
@@ -382,6 +391,148 @@ function LifetimeTab({ data, busy }: { data: AccuracyResponse | null; busy: bool
             );
           })}
         </div>
+      </section>
+    </div>
+  );
+}
+
+function CalibrationTab({ data, busy }: { data: AccuracyResponse | null; busy: boolean }) {
+  if (busy && !data) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-14 animate-pulse rounded-xl border border-border/60 bg-secondary/40" />
+        ))}
+      </div>
+    );
+  }
+  if (!data) return null;
+  const buckets = (data.calibration ?? []).filter((b) => b.total > 0);
+  if (buckets.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border/60 px-6 py-16 text-center">
+        <p className="font-display text-lg font-semibold">Not enough graded picks yet</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Calibration shows how often picks at e.g. 80% confidence actually win. Once more matches
+          settle, buckets will fill in here.
+        </p>
+      </div>
+    );
+  }
+
+  // Overall calibration error (mean absolute gap, weighted by sample)
+  const totalN = buckets.reduce((s, b) => s + b.total, 0);
+  const mae =
+    buckets.reduce((s, b) => s + Math.abs(b.hitRate - b.avgConfidence) * b.total, 0) / totalN;
+
+  return (
+    <div className="space-y-8">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-primary/40 bg-primary/[0.04] p-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            Avg. miss vs predicted
+          </div>
+          <div className="mt-3 font-display text-3xl font-bold tabular-nums text-primary">
+            {mae.toFixed(1)}<span className="text-base text-muted-foreground"> pp</span>
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            Lower is better — 0 means a 70% pick wins exactly 70% of the time.
+          </div>
+        </div>
+        <div className="rounded-2xl border border-border/60 bg-card/40 p-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            Picks bucketed
+          </div>
+          <div className="mt-3 font-display text-3xl font-bold tabular-nums">
+            {totalN.toLocaleString()}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-border/60 bg-card/40 p-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            Confidence buckets
+          </div>
+          <div className="mt-3 font-display text-3xl font-bold tabular-nums">{buckets.length}</div>
+        </div>
+      </div>
+
+      <section>
+        <h2 className="mb-4 font-display text-xl font-bold">Predicted vs actual hit-rate</h2>
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/40">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 border-b border-border/60 bg-secondary/40 px-5 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <span>Predicted</span>
+            <span className="text-right">Sample</span>
+            <span className="text-right">Actual</span>
+            <span className="text-right">Δ</span>
+          </div>
+          <ul className="divide-y divide-border/40">
+            {buckets.map((b) => {
+              const delta = b.hitRate - b.avgConfidence;
+              const wellCalibrated = Math.abs(delta) <= 5;
+              const overconfident = delta < -5;
+              return (
+                <li
+                  key={b.bucket}
+                  className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-4"
+                >
+                  <div className="min-w-0">
+                    <div className="font-display text-sm font-semibold">{b.bucket}</div>
+                    <div className="mt-2 h-2 w-full max-w-sm overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="relative h-full"
+                        style={{ width: `${Math.min(100, b.avgConfidence)}%` }}
+                      >
+                        <div className="absolute inset-0 rounded-full bg-muted-foreground/40" />
+                      </div>
+                      <div
+                        className={`-mt-2 h-2 rounded-full ${
+                          wellCalibrated
+                            ? "bg-primary"
+                            : overconfident
+                            ? "bg-destructive"
+                            : "bg-yellow-500"
+                        }`}
+                        style={{ width: `${Math.min(100, b.hitRate)}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                      avg predicted {b.avgConfidence.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-xs tabular-nums text-muted-foreground">
+                    {b.hits}/{b.total}
+                  </div>
+                  <div
+                    className={`text-right font-display text-lg font-bold tabular-nums ${
+                      wellCalibrated
+                        ? "text-primary"
+                        : overconfident
+                        ? "text-destructive"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {b.hitRate.toFixed(1)}%
+                  </div>
+                  <div
+                    className={`text-right font-mono text-xs tabular-nums ${
+                      wellCalibrated
+                        ? "text-primary"
+                        : overconfident
+                        ? "text-destructive"
+                        : "text-yellow-500"
+                    }`}
+                  >
+                    {delta >= 0 ? "+" : ""}
+                    {delta.toFixed(1)}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <p className="mt-4 font-mono text-[11px] text-muted-foreground">
+          Green bars = within 5 pp of predicted (well-calibrated). Red = overconfident (model
+          predicted higher than reality). Yellow = underconfident (won more than predicted).
+        </p>
       </section>
     </div>
   );

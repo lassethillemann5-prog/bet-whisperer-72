@@ -2145,6 +2145,15 @@ export interface AccuracyResponse {
     pickHits: number;
     pickTotal: number;
   }>;
+  calibration: Array<{
+    bucket: string; // e.g. "70-80%"
+    min: number; // 0..100 inclusive
+    max: number; // 0..100 exclusive (last bucket inclusive)
+    avgConfidence: number; // mean predicted probability inside bucket (0..100)
+    hitRate: number; // actual hit-rate (0..100)
+    hits: number;
+    total: number;
+  }>;
   error: string | null;
 }
 
@@ -2219,6 +2228,15 @@ export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
 
       const buckets = new Map<string, { hits: number; total: number; conf: number }>();
       const recent: AccuracyResponse["recent"] = [];
+      // Calibration buckets in 10% steps from 0..100
+      const CAL_STEP = 10;
+      const calBuckets = Array.from({ length: 10 }, (_, i) => ({
+        min: i * CAL_STEP,
+        max: (i + 1) * CAL_STEP,
+        hits: 0,
+        total: 0,
+        confSum: 0,
+      }));
       let totalMatches = 0;
       let totalPicks = 0;
       let totalHits = 0;
@@ -2267,6 +2285,13 @@ export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
           if (result) b.hits++;
           buckets.set(m.market, b);
 
+          // Bucket by predicted probability (conf is 0..1 from probabilities map)
+          const confPct = conf <= 1 ? conf * 100 : conf;
+          const idx = Math.min(9, Math.max(0, Math.floor(confPct / CAL_STEP)));
+          calBuckets[idx].total++;
+          calBuckets[idx].confSum += confPct;
+          if (result) calBuckets[idx].hits++;
+
           totalPicks++;
           matchPicks++;
           if (result) {
@@ -2307,6 +2332,15 @@ export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
         overallHitRate: totalPicks > 0 ? (totalHits / totalPicks) * 100 : 0,
         markets,
         recent,
+        calibration: calBuckets.map((b) => ({
+          bucket: `${b.min}-${b.max}%`,
+          min: b.min,
+          max: b.max,
+          avgConfidence: b.total > 0 ? b.confSum / b.total : (b.min + b.max) / 2,
+          hitRate: b.total > 0 ? (b.hits / b.total) * 100 : 0,
+          hits: b.hits,
+          total: b.total,
+        })),
         error: null,
       };
     } catch (e) {
@@ -2318,6 +2352,7 @@ export const getModelAccuracy = createServerFn({ method: "GET" }).handler(
         overallHitRate: 0,
         markets: [],
         recent: [],
+        calibration: [],
         error: e instanceof Error ? e.message : "Failed to compute accuracy",
       };
     }
