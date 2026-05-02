@@ -212,13 +212,15 @@ function IndexPage() {
       setTodayLoaded(true);
       if (res.error) toast.error(res.error);
 
-      let safety = 20; // cap total follow-up rounds
+      let safety = 30; // cap total follow-up rounds
       while (res.missing > 0 && safety-- > 0) {
         res = await getTodayPredictions({ data: { computeBudget: 8 } });
         setTodayRows(res.rows);
         setTodayMissing(res.missing);
         setTodayComputed((c) => c + res.computed);
-        if (res.computed === 0) break; // nothing progressed — stop
+        if (res.computed === 0 && res.missing > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load today's picks");
