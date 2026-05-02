@@ -719,59 +719,22 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
         .select("match_id, payload")
         .in("match_id", ids);
 
-      const cacheMap = new Map<number, { match: MatchSummary; predictions: MatchPredictions }>();
+      const cacheMap = new Map<number, PredictionCacheEntry>();
       for (const row of cachedRows ?? []) {
         cacheMap.set(
           row.match_id as number,
-          row.payload as unknown as { match: MatchSummary; predictions: MatchPredictions },
+          { payload: row.payload as unknown as PredictionCachePayload, fresh: true },
         );
       }
 
-      // 2b. If we don't have enough cached predictions to give the AI a real
-      // shortlist, lazily compute a batch right here (bounded so we don't
-      // hammer the football API).
-      const minCacheTarget = Math.max(maxPicks * 3, 12);
-      if (cacheMap.size < minCacheTarget) {
-        const computeBudget = Math.min(12, fixtures.length - cacheMap.size);
-        const toCompute = fixtures.filter((f) => !cacheMap.has(f.id)).slice(0, computeBudget);
-        await Promise.allSettled(
-          toCompute.map(async (f) => {
-            try {
-              const [homeForm, awayForm] = await Promise.all([
-                fetchTeamForm(f.homeTeam.id),
-                fetchTeamForm(f.awayTeam.id),
-              ]);
-              const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
-                homeForm,
-                awayForm,
-              );
-              const predictions: MatchPredictions = {
-                matchId: f.id,
-                generatedAt: new Date().toISOString(),
-                homeForm,
-                awayForm,
-                expectedGoalsHome,
-                expectedGoalsAway,
-                markets,
-                commentary: "",
-              };
-              const payload = { match: f, predictions };
-              try {
-                await supabase.from("predictions_cache").upsert({
-                  match_id: f.id,
-                  payload: payload as unknown,
-                  updated_at: new Date().toISOString(),
-                });
-              } catch (e) {
-                console.warn("coach cache write skipped", e);
-              }
-              cacheMap.set(f.id, payload);
-            } catch (e) {
-              console.warn("coach predict failed for", f.id, e);
-            }
-          }),
-        );
-      }
+      // 2b. Ensure the coach considers every fixture for today, not just the
+      // first cached batch. Lightweight form keeps this bounded to 2 calls per
+      // uncached fixture instead of xG/stat lookups per recent match.
+      const missing = fixtures.filter((f) => {
+        const cached = cacheMap.get(f.id);
+        return !cached || !hasUsableBulkPrediction(cached.payload);
+      });
+      await computeLiteBatch(supabase, missing, cacheMap);
 
       // 3. Build candidate selections from cached fixtures
       type Candidate = {
@@ -791,7 +754,7 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
       for (const f of fixtures) {
         const cached = cacheMap.get(f.id);
         if (!cached) continue;
-        const { oneXTwo, ou25, btts } = extractMarkets(cached.predictions);
+        const { oneXTwo, ou25, btts } = extractMarkets(cached.payload.predictions);
         const base = {
           matchId: f.id,
           homeTeam: f.homeTeam.name,
@@ -812,7 +775,7 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
         }
-        candidates.push(...extendedCandidates(cached.predictions, base, market));
+        candidates.push(...extendedCandidates(cached.payload.predictions, base, market));
       }
 
       // 4. Filter by min probability, sort, take top N (one per match wins out)
