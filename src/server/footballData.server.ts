@@ -392,6 +392,59 @@ export async function fetchTeamForm(teamId: number, limit = 8): Promise<TeamForm
   }
 }
 
+/** Lightweight team form for bulk daily scans. Skips fixture xG lookups so we can cover every fixture. */
+export async function fetchTeamFormLite(teamId: number, limit = 8): Promise<TeamForm | null> {
+  const cached = await readCache<TeamForm>("team_form_cache", "team_id", teamId, TEAM_FORM_TTL_MS);
+  if (cached) return cached;
+
+  try {
+    const data = await fdFetch<{ response: ApiSportsFixture[] }>(
+      `/fixtures?team=${teamId}&last=${limit}&status=FT`,
+    );
+    const matches = (data.response ?? []).map(toMatchSummary).slice(-limit);
+    let played = 0, wins = 0, draws = 0, losses = 0, goalsFor = 0, goalsAgainst = 0;
+    const last5: ("W" | "D" | "L")[] = [];
+    const decayLambda = Math.LN2 / 90;
+    const nowMs = Date.now();
+    let wAttack = 0, wDefense = 0, wSum = 0;
+
+    for (const m of matches) {
+      const isHome = m.homeTeam.id === teamId;
+      const ft = m.score.fullTime;
+      if (ft.home == null || ft.away == null) continue;
+      played++;
+      const gf = isHome ? ft.home : ft.away;
+      const ga = isHome ? ft.away : ft.home;
+      goalsFor += gf;
+      goalsAgainst += ga;
+      if (gf > ga) { wins++; last5.push("W"); }
+      else if (gf < ga) { losses++; last5.push("L"); }
+      else { draws++; last5.push("D"); }
+      const ageDays = Math.max(0, (nowMs - new Date(m.utcDate).getTime()) / (1000 * 60 * 60 * 24));
+      const w = Math.exp(-decayLambda * ageDays);
+      wAttack += gf * w;
+      wDefense += ga * w;
+      wSum += w;
+    }
+
+    return {
+      played,
+      wins,
+      draws,
+      losses,
+      goalsFor,
+      goalsAgainst,
+      last5: last5.slice(-5),
+      weightedAttackPerGame: wSum > 0 ? +(wAttack / wSum).toFixed(3) : undefined,
+      weightedDefensePerGame: wSum > 0 ? +(wDefense / wSum).toFixed(3) : undefined,
+      effectiveSample: wSum > 0 ? +wSum.toFixed(2) : undefined,
+    };
+  } catch (e) {
+    console.error("fetchTeamFormLite failed", teamId, e);
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Injuries (API-Sports `/injuries?team={id}`)
 // We translate the count of currently-out players into a small λ penalty.

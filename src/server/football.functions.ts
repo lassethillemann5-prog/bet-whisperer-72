@@ -4,6 +4,7 @@ import {
   fetchMatch,
   fetchRecentMatches,
   fetchTeamForm,
+  fetchTeamFormLite,
   fetchTeamInjuries,
   fetchUpcomingMatches,
   fetchFinishedFixtures,
@@ -30,6 +31,67 @@ function adminClient() {
 }
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
+
+type PredictionCachePayload = { match: MatchSummary; predictions: MatchPredictions };
+type PredictionCacheEntry = { payload: PredictionCachePayload; fresh: boolean };
+
+function hasUsableBulkPrediction(payload: PredictionCachePayload): boolean {
+  const p = payload.predictions;
+  if (p.homeForm == null || p.awayForm == null) return false;
+  const requiredMarkets = ["cards", "double_chance", "dnb", "ah"];
+  return requiredMarkets.every((k) => p.markets.some((m) => m.market === k));
+}
+
+async function computeAndCacheLitePrediction(
+  supabase: ReturnType<typeof adminClient>,
+  fixture: MatchSummary,
+): Promise<PredictionCachePayload | null> {
+  const [homeForm, awayForm] = await Promise.all([
+    fetchTeamFormLite(fixture.homeTeam.id),
+    fetchTeamFormLite(fixture.awayTeam.id),
+  ]);
+  const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(homeForm, awayForm);
+  const predictions: MatchPredictions = {
+    matchId: fixture.id,
+    generatedAt: new Date().toISOString(),
+    homeForm,
+    awayForm,
+    expectedGoalsHome,
+    expectedGoalsAway,
+    markets,
+    commentary: "",
+  };
+  const payload = { match: fixture, predictions };
+  try {
+    await supabase.from("predictions_cache").upsert({
+      match_id: fixture.id,
+      payload: payload as unknown,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn("bulk prediction cache write skipped", e);
+  }
+  return payload;
+}
+
+async function computeLiteBatch(
+  supabase: ReturnType<typeof adminClient>,
+  fixtures: MatchSummary[],
+  cacheMap: Map<number, PredictionCacheEntry>,
+): Promise<number> {
+  let computedCount = 0;
+  for (const fixture of fixtures) {
+    try {
+      const payload = await computeAndCacheLitePrediction(supabase, fixture);
+      if (!payload) continue;
+      cacheMap.set(fixture.id, { payload, fresh: true });
+      computedCount++;
+    } catch (e) {
+      console.warn("bulk predict failed for", fixture.id, e);
+    }
+  }
+  return computedCount;
+}
 
 export const getFixtures = createServerFn({ method: "GET" })
   .inputValidator((input: { days?: number; competition?: string } | undefined) => input ?? {})
@@ -479,7 +541,7 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
         .select("match_id, payload, updated_at")
         .in("match_id", ids);
 
-      const cacheMap = new Map<number, { payload: { match: MatchSummary; predictions: MatchPredictions }; fresh: boolean }>();
+      const cacheMap = new Map<number, PredictionCacheEntry>();
       for (const row of cachedRows ?? []) {
         const fresh = row.updated_at
           ? Date.now() - new Date(row.updated_at).getTime() < CACHE_TTL_MS
@@ -497,76 +559,14 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
       const missing = fixtures.filter((f) => {
         const c = cacheMap.get(f.id);
         if (!c || !c.fresh) return true;
-        const p = c.payload.predictions;
-        if (p.homeForm == null || p.awayForm == null) return true;
-        // Recompute when newly-added markets (e.g. cards) are missing from
-        // older cached payloads so the fixtures list stays in sync.
-        const requiredMarkets = ["cards", "double_chance", "dnb", "ah"];
-        return !requiredMarkets.every((k) =>
-          p.markets.some((m) => m.market === k),
-        );
+        return !hasUsableBulkPrediction(c.payload);
       });
 
-      // 4. Compute up to computeBudget fresh predictions with limited
-      // concurrency. API-Sports free tier rate-limits to ~10 req/min and
-      // each fixture costs 2 calls (home + away form). Running 20 in
-      // parallel triggered a flood of 429s and left rows pending. We cap
-      // at 3 concurrent fixtures (~6 in-flight requests) which keeps us
-      // under the per-minute ceiling while still progressing quickly.
+      // 4. Compute up to computeBudget fresh predictions sequentially with
+      // lightweight form. This covers all fixtures instead of spending dozens
+      // of extra xG/stat calls on only the first few matches.
       const toCompute = missing.slice(0, computeBudget);
-      const CONCURRENCY = 3;
-      const computed: Array<PromiseSettledResult<number | null>> = [];
-      const queue = [...toCompute];
-      const workers: Promise<void>[] = [];
-      const runOne = async (f: typeof toCompute[number]) => {
-        try {
-          const [homeForm, awayForm] = await Promise.all([
-            fetchTeamForm(f.homeTeam.id),
-            fetchTeamForm(f.awayTeam.id),
-          ]);
-            const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
-              homeForm,
-              awayForm,
-            );
-            const predictions: MatchPredictions = {
-              matchId: f.id,
-              generatedAt: new Date().toISOString(),
-              homeForm,
-              awayForm,
-              expectedGoalsHome,
-              expectedGoalsAway,
-              markets,
-              commentary: "",
-            };
-            const payload = { match: f, predictions };
-            // Best-effort cache write
-            try {
-              await supabase.from("predictions_cache").upsert({
-                match_id: f.id,
-                payload: payload as unknown,
-                updated_at: new Date().toISOString(),
-              });
-            } catch (e) {
-              console.warn("today cache write skipped", e);
-            }
-            cacheMap.set(f.id, { payload, fresh: true });
-          computed.push({ status: "fulfilled", value: f.id });
-        } catch (e) {
-          console.warn("today predict failed for", f.id, e);
-          computed.push({ status: "fulfilled", value: null });
-        }
-      };
-      for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
-        workers.push((async () => {
-          while (queue.length > 0) {
-            const next = queue.shift();
-            if (!next) break;
-            await runOne(next);
-          }
-        })());
-      }
-      await Promise.all(workers);
-      const computedCount = computed.filter((r) => r.status === "fulfilled" && r.value).length;
+      const computedCount = await computeLiteBatch(supabase, toCompute, cacheMap);
 
       // 5. Build rows
       const rows: TodayPickRow[] = fixtures.map((f) => {
@@ -615,7 +615,10 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
         };
       });
 
-      const stillMissing = rows.filter((r) => !r.cached).length;
+      const stillMissing = fixtures.filter((f) => {
+        const cached = cacheMap.get(f.id);
+        return !cached || !hasUsableBulkPrediction(cached.payload);
+      }).length;
       return { rows, computed: computedCount, missing: stillMissing, error: null };
     } catch (e) {
       console.error("getTodayPredictions failed", e);
@@ -716,59 +719,22 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
         .select("match_id, payload")
         .in("match_id", ids);
 
-      const cacheMap = new Map<number, { match: MatchSummary; predictions: MatchPredictions }>();
+      const cacheMap = new Map<number, PredictionCacheEntry>();
       for (const row of cachedRows ?? []) {
         cacheMap.set(
           row.match_id as number,
-          row.payload as unknown as { match: MatchSummary; predictions: MatchPredictions },
+          { payload: row.payload as unknown as PredictionCachePayload, fresh: true },
         );
       }
 
-      // 2b. If we don't have enough cached predictions to give the AI a real
-      // shortlist, lazily compute a batch right here (bounded so we don't
-      // hammer the football API).
-      const minCacheTarget = Math.max(maxPicks * 3, 12);
-      if (cacheMap.size < minCacheTarget) {
-        const computeBudget = Math.min(12, fixtures.length - cacheMap.size);
-        const toCompute = fixtures.filter((f) => !cacheMap.has(f.id)).slice(0, computeBudget);
-        await Promise.allSettled(
-          toCompute.map(async (f) => {
-            try {
-              const [homeForm, awayForm] = await Promise.all([
-                fetchTeamForm(f.homeTeam.id),
-                fetchTeamForm(f.awayTeam.id),
-              ]);
-              const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
-                homeForm,
-                awayForm,
-              );
-              const predictions: MatchPredictions = {
-                matchId: f.id,
-                generatedAt: new Date().toISOString(),
-                homeForm,
-                awayForm,
-                expectedGoalsHome,
-                expectedGoalsAway,
-                markets,
-                commentary: "",
-              };
-              const payload = { match: f, predictions };
-              try {
-                await supabase.from("predictions_cache").upsert({
-                  match_id: f.id,
-                  payload: payload as unknown,
-                  updated_at: new Date().toISOString(),
-                });
-              } catch (e) {
-                console.warn("coach cache write skipped", e);
-              }
-              cacheMap.set(f.id, payload);
-            } catch (e) {
-              console.warn("coach predict failed for", f.id, e);
-            }
-          }),
-        );
-      }
+      // 2b. Ensure the coach considers every fixture for today, not just the
+      // first cached batch. Lightweight form keeps this bounded to 2 calls per
+      // uncached fixture instead of xG/stat lookups per recent match.
+      const missing = fixtures.filter((f) => {
+        const cached = cacheMap.get(f.id);
+        return !cached || !hasUsableBulkPrediction(cached.payload);
+      });
+      await computeLiteBatch(supabase, missing, cacheMap);
 
       // 3. Build candidate selections from cached fixtures
       type Candidate = {
@@ -788,7 +754,7 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
       for (const f of fixtures) {
         const cached = cacheMap.get(f.id);
         if (!cached) continue;
-        const { oneXTwo, ou25, btts } = extractMarkets(cached.predictions);
+        const { oneXTwo, ou25, btts } = extractMarkets(cached.payload.predictions);
         const base = {
           matchId: f.id,
           homeTeam: f.homeTeam.name,
@@ -809,7 +775,7 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
         }
-        candidates.push(...extendedCandidates(cached.predictions, base, market));
+        candidates.push(...extendedCandidates(cached.payload.predictions, base, market));
       }
 
       // 4. Filter by min probability, sort, take top N (one per match wins out)
