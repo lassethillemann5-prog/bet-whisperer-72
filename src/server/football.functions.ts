@@ -4,6 +4,7 @@ import {
   fetchMatch,
   fetchRecentMatches,
   fetchTeamForm,
+  fetchTeamFormLite,
   fetchTeamInjuries,
   fetchUpcomingMatches,
   fetchFinishedFixtures,
@@ -30,6 +31,67 @@ function adminClient() {
 }
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
+
+type PredictionCachePayload = { match: MatchSummary; predictions: MatchPredictions };
+type PredictionCacheEntry = { payload: PredictionCachePayload; fresh: boolean };
+
+function hasUsableBulkPrediction(payload: PredictionCachePayload): boolean {
+  const p = payload.predictions;
+  if (p.homeForm == null || p.awayForm == null) return false;
+  const requiredMarkets = ["cards", "double_chance", "dnb", "ah"];
+  return requiredMarkets.every((k) => p.markets.some((m) => m.market === k));
+}
+
+async function computeAndCacheLitePrediction(
+  supabase: ReturnType<typeof adminClient>,
+  fixture: MatchSummary,
+): Promise<PredictionCachePayload | null> {
+  const [homeForm, awayForm] = await Promise.all([
+    fetchTeamFormLite(fixture.homeTeam.id),
+    fetchTeamFormLite(fixture.awayTeam.id),
+  ]);
+  const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(homeForm, awayForm);
+  const predictions: MatchPredictions = {
+    matchId: fixture.id,
+    generatedAt: new Date().toISOString(),
+    homeForm,
+    awayForm,
+    expectedGoalsHome,
+    expectedGoalsAway,
+    markets,
+    commentary: "",
+  };
+  const payload = { match: fixture, predictions };
+  try {
+    await supabase.from("predictions_cache").upsert({
+      match_id: fixture.id,
+      payload: payload as unknown,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn("bulk prediction cache write skipped", e);
+  }
+  return payload;
+}
+
+async function computeLiteBatch(
+  supabase: ReturnType<typeof adminClient>,
+  fixtures: MatchSummary[],
+  cacheMap: Map<number, PredictionCacheEntry>,
+): Promise<number> {
+  let computedCount = 0;
+  for (const fixture of fixtures) {
+    try {
+      const payload = await computeAndCacheLitePrediction(supabase, fixture);
+      if (!payload) continue;
+      cacheMap.set(fixture.id, { payload, fresh: true });
+      computedCount++;
+    } catch (e) {
+      console.warn("bulk predict failed for", fixture.id, e);
+    }
+  }
+  return computedCount;
+}
 
 export const getFixtures = createServerFn({ method: "GET" })
   .inputValidator((input: { days?: number; competition?: string } | undefined) => input ?? {})
