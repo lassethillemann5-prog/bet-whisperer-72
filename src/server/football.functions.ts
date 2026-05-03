@@ -1181,12 +1181,17 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
       legs?: number;            // 2..5
       minProbability?: number;  // per-leg floor, 0..95
       market?: CoachMarket;     // "any" | "1x2" | "ou_25" | "btts"
+      targetCombinedOdds?: number; // optional: aim combined fair odds near this
     } | undefined) => input ?? {},
   )
   .handler(async ({ data }): Promise<AccumulatorResponse> => {
     const targetLegs = Math.max(2, Math.min(5, data.legs ?? 3));
     const minProbability = Math.max(0, Math.min(95, data.minProbability ?? 60));
     const market: CoachMarket = data.market ?? "any";
+    const targetCombinedOdds =
+      typeof data.targetCombinedOdds === "number" && data.targetCombinedOdds > 1
+        ? Math.min(1000, data.targetCombinedOdds)
+        : null;
 
     try {
       const supabase = adminClient();
