@@ -1465,7 +1465,7 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
       // and pad / fall back to top-probability picks if needed.
       const candById = new Map(shortlist.map((c) => [`${c.matchId}-${c.market}-${c.selection}`, c]));
       const seenMatch = new Set<number>();
-      const finalCands: Cand[] = [];
+      let finalCands: Cand[] = [];
       for (const id of chosenIds) {
         const c = candById.get(id);
         if (!c) continue;
@@ -1482,6 +1482,45 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
           finalCands.push(c);
           if (finalCands.length >= targetLegs) break;
         }
+      }
+
+      // If user wants a target combined fair odds, optimize selection toward it.
+      // Greedy: keep one leg per match, choose set of `targetLegs` that minimizes
+      // |combinedFair - target| while still respecting the per-leg floor.
+      if (targetCombinedOdds && shortlist.length >= targetLegs) {
+        const logTarget = Math.log(targetCombinedOdds);
+        // Best leg per match (highest prob per match, only one per match)
+        const bestPerMatch = new Map<number, Cand>();
+        for (const c of shortlist) {
+          const cur = bestPerMatch.get(c.matchId);
+          if (!cur || c.probability > cur.probability) bestPerMatch.set(c.matchId, c);
+        }
+        const pool = Array.from(bestPerMatch.values());
+        // Each leg contributes log(100/prob) to combined log-fair-odds.
+        const withLog = pool
+          .map((c) => ({ c, l: Math.log(100 / Math.max(1, c.probability)) }))
+          .sort((a, b) => a.l - b.l);
+
+        // Greedy: start from smallest-log legs, swap to approach target sum.
+        const picked = withLog.slice(0, targetLegs);
+        let sum = picked.reduce((s, x) => s + x.l, 0);
+        let improved = true;
+        let safety = 200;
+        while (improved && safety-- > 0) {
+          improved = false;
+          for (let i = 0; i < picked.length; i++) {
+            for (const cand of withLog) {
+              if (picked.some((p) => p.c.matchId === cand.c.matchId)) continue;
+              const newSum = sum - picked[i].l + cand.l;
+              if (Math.abs(newSum - logTarget) < Math.abs(sum - logTarget) - 1e-6) {
+                sum = newSum;
+                picked[i] = cand;
+                improved = true;
+              }
+            }
+          }
+        }
+        finalCands = picked.map((p) => p.c);
       }
 
       const legs: AccumulatorLeg[] = finalCands.map((c) => {
