@@ -57,6 +57,8 @@ function AccumulatorPage() {
   const [legCount, setLegCount] = useState<number>(3);
   const [minProb, setMinProb] = useState<number>(60);
   const [market, setMarket] = useState<CoachMarket>("any");
+  const [useTargetOdds, setUseTargetOdds] = useState<boolean>(false);
+  const [targetOdds, setTargetOdds] = useState<string>("5.00");
 
   // Result
   const [busy, setBusy] = useState(false);
@@ -93,7 +95,12 @@ function AccumulatorPage() {
     setBusy(true);
     try {
       const res = await getAccumulatorBuilder({
-        data: { legs: legCount, minProbability: minProb, market },
+        data: {
+          legs: legCount,
+          minProbability: minProb,
+          market,
+          targetCombinedOdds: useTargetOdds ? Number(targetOdds.replace(",", ".")) : undefined,
+        },
       });
       setResponse(res);
       if (res.error) {
