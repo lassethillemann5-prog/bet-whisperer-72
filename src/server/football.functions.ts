@@ -1361,7 +1361,10 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
               targetLegs,
               minProbability,
               marketFilter: marketLabel(market),
-              rule: "Pick the best legs to combine into a single accumulator. Use only one leg per match. Prefer high probability AND diversification across leagues/markets to reduce correlation.",
+              targetCombinedFairOdds: targetCombinedOdds,
+              rule: targetCombinedOdds
+                ? `Pick legs so the COMBINED fair odds (product of 100/probability) is as close as possible to ${targetCombinedOdds.toFixed(2)}. One leg per match. Prefer diversification across leagues/markets.`
+                : "Pick the best legs to combine into a single accumulator. Use only one leg per match. Prefer high probability AND diversification across leagues/markets to reduce correlation.",
             },
             candidates: shortlist.map((c) => ({
               id: `${c.matchId}-${c.market}-${c.selection}`,
