@@ -229,16 +229,16 @@ function IndexPage() {
     }
   };
 
-  // Auto-load today's best picks as soon as the user is signed in — don't
-  // wait for them to switch tabs or open individual fixtures. This makes the
-  // "Best pick per match" column populate in the background while they
-  // browse, so picks are ready the moment they look.
+  // Lazy-load today's picks only when the user actually opens the "Today's
+  // picks" tab. Auto-loading on sign-in burned through the football API
+  // credit budget by precomputing predictions for every fixture of the day,
+  // even when the user never looked at them.
   useEffect(() => {
-    if (user && !todayLoaded && !todayBusy) {
+    if (user && tab === "picks" && !todayLoaded && !todayBusy) {
       void loadTodayPredictions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, todayLoaded]);
+  }, [user, tab, todayLoaded]);
 
   const trackedIds = useMemo(() => new Set(tracked.map((t) => t.match_id)), [tracked]);
 
