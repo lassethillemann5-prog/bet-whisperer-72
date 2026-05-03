@@ -57,6 +57,8 @@ function AccumulatorPage() {
   const [legCount, setLegCount] = useState<number>(3);
   const [minProb, setMinProb] = useState<number>(60);
   const [market, setMarket] = useState<CoachMarket>("any");
+  const [useTargetOdds, setUseTargetOdds] = useState<boolean>(false);
+  const [targetOdds, setTargetOdds] = useState<string>("5.00");
 
   // Result
   const [busy, setBusy] = useState(false);
@@ -93,7 +95,12 @@ function AccumulatorPage() {
     setBusy(true);
     try {
       const res = await getAccumulatorBuilder({
-        data: { legs: legCount, minProbability: minProb, market },
+        data: {
+          legs: legCount,
+          minProbability: minProb,
+          market,
+          targetCombinedOdds: useTargetOdds ? Number(targetOdds.replace(",", ".")) : undefined,
+        },
       });
       setResponse(res);
       if (res.error) {
@@ -281,6 +288,44 @@ function AccumulatorPage() {
                     <SelectItem value="away_to_score">Away to Score only</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="sm:col-span-2 rounded-xl border border-border/60 bg-background/40 p-3">
+                <label className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                      Target combined fair odds
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      AI builds the combo so combined fair odds is as close to your target as possible.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={useTargetOdds}
+                    onChange={(e) => setUseTargetOdds(e.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                </label>
+                {useTargetOdds && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <Label className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                      Target odds
+                    </Label>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.1"
+                      min="1.10"
+                      value={targetOdds}
+                      onChange={(e) => setTargetOdds(e.target.value)}
+                      className="h-8 w-28"
+                    />
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      e.g. 3.00, 5.00, 10.00
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

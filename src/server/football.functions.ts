@@ -1181,12 +1181,17 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
       legs?: number;            // 2..5
       minProbability?: number;  // per-leg floor, 0..95
       market?: CoachMarket;     // "any" | "1x2" | "ou_25" | "btts"
+      targetCombinedOdds?: number; // optional: aim combined fair odds near this
     } | undefined) => input ?? {},
   )
   .handler(async ({ data }): Promise<AccumulatorResponse> => {
     const targetLegs = Math.max(2, Math.min(5, data.legs ?? 3));
     const minProbability = Math.max(0, Math.min(95, data.minProbability ?? 60));
     const market: CoachMarket = data.market ?? "any";
+    const targetCombinedOdds =
+      typeof data.targetCombinedOdds === "number" && data.targetCombinedOdds > 1
+        ? Math.min(1000, data.targetCombinedOdds)
+        : null;
 
     try {
       const supabase = adminClient();
@@ -1356,7 +1361,10 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
               targetLegs,
               minProbability,
               marketFilter: marketLabel(market),
-              rule: "Pick the best legs to combine into a single accumulator. Use only one leg per match. Prefer high probability AND diversification across leagues/markets to reduce correlation.",
+              targetCombinedFairOdds: targetCombinedOdds,
+              rule: targetCombinedOdds
+                ? `Pick legs so the COMBINED fair odds (product of 100/probability) is as close as possible to ${targetCombinedOdds.toFixed(2)}. One leg per match. Prefer diversification across leagues/markets.`
+                : "Pick the best legs to combine into a single accumulator. Use only one leg per match. Prefer high probability AND diversification across leagues/markets to reduce correlation.",
             },
             candidates: shortlist.map((c) => ({
               id: `${c.matchId}-${c.market}-${c.selection}`,
@@ -1457,7 +1465,7 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
       // and pad / fall back to top-probability picks if needed.
       const candById = new Map(shortlist.map((c) => [`${c.matchId}-${c.market}-${c.selection}`, c]));
       const seenMatch = new Set<number>();
-      const finalCands: Cand[] = [];
+      let finalCands: Cand[] = [];
       for (const id of chosenIds) {
         const c = candById.get(id);
         if (!c) continue;
@@ -1474,6 +1482,45 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
           finalCands.push(c);
           if (finalCands.length >= targetLegs) break;
         }
+      }
+
+      // If user wants a target combined fair odds, optimize selection toward it.
+      // Greedy: keep one leg per match, choose set of `targetLegs` that minimizes
+      // |combinedFair - target| while still respecting the per-leg floor.
+      if (targetCombinedOdds && shortlist.length >= targetLegs) {
+        const logTarget = Math.log(targetCombinedOdds);
+        // Best leg per match (highest prob per match, only one per match)
+        const bestPerMatch = new Map<number, Cand>();
+        for (const c of shortlist) {
+          const cur = bestPerMatch.get(c.matchId);
+          if (!cur || c.probability > cur.probability) bestPerMatch.set(c.matchId, c);
+        }
+        const pool = Array.from(bestPerMatch.values());
+        // Each leg contributes log(100/prob) to combined log-fair-odds.
+        const withLog = pool
+          .map((c) => ({ c, l: Math.log(100 / Math.max(1, c.probability)) }))
+          .sort((a, b) => a.l - b.l);
+
+        // Greedy: start from smallest-log legs, swap to approach target sum.
+        const picked = withLog.slice(0, targetLegs);
+        let sum = picked.reduce((s, x) => s + x.l, 0);
+        let improved = true;
+        let safety = 200;
+        while (improved && safety-- > 0) {
+          improved = false;
+          for (let i = 0; i < picked.length; i++) {
+            for (const cand of withLog) {
+              if (picked.some((p) => p.c.matchId === cand.c.matchId)) continue;
+              const newSum = sum - picked[i].l + cand.l;
+              if (Math.abs(newSum - logTarget) < Math.abs(sum - logTarget) - 1e-6) {
+                sum = newSum;
+                picked[i] = cand;
+                improved = true;
+              }
+            }
+          }
+        }
+        finalCands = picked.map((p) => p.c);
       }
 
       const legs: AccumulatorLeg[] = finalCands.map((c) => {
