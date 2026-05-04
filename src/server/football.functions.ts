@@ -17,6 +17,7 @@ import {
   conflictingLegs,
   BUILDER_LEGS,
   type BuilderLegId,
+  type BuilderLegMeta,
 } from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
 import { generateAiBetBuilder, type RiskLevel } from "./aiBetBuilder.server";
