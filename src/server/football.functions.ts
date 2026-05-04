@@ -644,6 +644,37 @@ export type CoachMarket =
   | "home_to_score"
   | "away_to_score";
 
+/**
+ * Returns true when a candidate `market` should be included given the
+ * legacy single-select `singleMarket` filter and an optional explicit
+ * multi-select set. Rules:
+ *   - If `allowed` is provided and non-empty AND does not contain "any",
+ *     only markets in the set pass.
+ *   - Otherwise we fall back to the single `singleMarket` value
+ *     ("any" passes everything; a specific value passes only itself).
+ */
+function isMarketAllowed(
+  market: CoachMarket,
+  singleMarket: CoachMarket,
+  allowed?: Set<CoachMarket> | null,
+): boolean {
+  if (allowed && allowed.size > 0 && !allowed.has("any")) {
+    return allowed.has(market);
+  }
+  return singleMarket === "any" || singleMarket === market;
+}
+
+/** Build a normalized Set<CoachMarket> from a possibly-undefined input. */
+function normalizeMarkets(input?: CoachMarket[] | null): Set<CoachMarket> | null {
+  if (!input || !Array.isArray(input) || input.length === 0) return null;
+  const set = new Set<CoachMarket>();
+  for (const m of input) {
+    if (typeof m !== "string") continue;
+    set.add(m);
+  }
+  return set.size > 0 ? set : null;
+}
+
 export interface CoachRecommendation {
   matchId: number;
   homeTeam: string;
