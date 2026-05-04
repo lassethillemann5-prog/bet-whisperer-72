@@ -138,11 +138,13 @@ ${JSON.stringify(legCatalog, null, 2)}`;
     const parsed = JSON.parse(argsStr) as { legs?: string[]; rationale?: string };
     const rawLegs = Array.isArray(parsed.legs) ? parsed.legs : [];
 
-    // Validate + dedupe by group (keep first per group, drop unknowns)
+    // Validate + dedupe by group (keep first per group, drop unknowns / disallowed)
+    const allowedIdSet = new Set(filteredLegs.map((l) => l.id));
     const seenGroups = new Set<string>();
     const validatedLegs: BuilderLegId[] = [];
     for (const id of rawLegs) {
       if (!VALID_IDS.has(id)) continue;
+      if (!allowedIdSet.has(id as BuilderLegId)) continue;
       const meta = BUILDER_LEGS.find((l) => l.id === id)!;
       if (seenGroups.has(meta.group)) continue;
       seenGroups.add(meta.group);
