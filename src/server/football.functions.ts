@@ -1215,6 +1215,7 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
       legs?: number;            // 2..5
       minProbability?: number;  // per-leg floor, 0..95
       market?: CoachMarket;     // "any" | "1x2" | "ou_25" | "btts"
+      markets?: CoachMarket[];  // optional multi-select; overrides `market`
       targetCombinedOdds?: number; // optional: aim combined fair odds near this
     } | undefined) => input ?? {},
   )
@@ -1222,6 +1223,7 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
     const targetLegs = Math.max(2, Math.min(5, data.legs ?? 3));
     const minProbability = Math.max(0, Math.min(95, data.minProbability ?? 60));
     const market: CoachMarket = data.market ?? "any";
+    const allowed = normalizeMarkets(data.markets);
     const targetCombinedOdds =
       typeof data.targetCombinedOdds === "number" && data.targetCombinedOdds > 1
         ? Math.min(1000, data.targetCombinedOdds)
@@ -1337,20 +1339,20 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
           competition: f.competition?.name ?? null,
           kickoff: f.utcDate,
         };
-        if ((market === "any" || market === "1x2") && oneXTwo) {
+        if (isMarketAllowed("1x2", market, allowed) && oneXTwo) {
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "1", selectionLabel: `${f.homeTeam.shortName ?? f.homeTeam.name} to win`, probability: oneXTwo.home });
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "X", selectionLabel: "Draw", probability: oneXTwo.draw });
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "2", selectionLabel: `${f.awayTeam.shortName ?? f.awayTeam.name} to win`, probability: oneXTwo.away });
         }
-        if ((market === "any" || market === "ou_25") && ou25) {
+        if (isMarketAllowed("ou_25", market, allowed) && ou25) {
           candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Over", selectionLabel: "Over 2.5 goals", probability: ou25.over });
           candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Under", selectionLabel: "Under 2.5 goals", probability: ou25.under });
         }
-        if ((market === "any" || market === "btts") && btts) {
+        if (isMarketAllowed("btts", market, allowed) && btts) {
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
         }
-        candidates.push(...extendedCandidates(cached.predictions, base, market));
+        candidates.push(...extendedCandidates(cached.predictions, base, market, allowed));
       }
 
       // Filter by probability floor, keep best per (match,market) so we don't
