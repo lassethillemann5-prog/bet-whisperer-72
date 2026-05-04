@@ -777,7 +777,13 @@ function TodaysPicksPanel({
 }) {
   const [pickQuery, setPickQuery] = useState("");
   const [pickComp, setPickComp] = useState<string>("all");
-  const [pickMarket, setPickMarket] = useState<"all" | "1x2" | "ou_25" | "btts">("all");
+  // Multi-select set of allowed markets (matched against r.best.market).
+  // Defaults to ALL markets selected — same effect as the old "all" value.
+  const ALL_PICK_MARKETS = ["1x2", "ou_25", "btts"] as const;
+  type PickMarket = (typeof ALL_PICK_MARKETS)[number];
+  const [pickMarkets, setPickMarkets] = useState<Set<PickMarket>>(
+    () => new Set(ALL_PICK_MARKETS),
+  );
   const [minConf, setMinConf] = useState<number>(0);
   const [now, setNow] = useState(() => Date.now());
 
@@ -806,8 +812,12 @@ function TodaysPicksPanel({
     if (pickComp !== "all") {
       out = out.filter((r) => competitionKey(r.match.competition) === pickComp);
     }
-    if (pickMarket !== "all") {
-      out = out.filter((r) => r.best?.market === pickMarket);
+    if (pickMarkets.size > 0 && pickMarkets.size < ALL_PICK_MARKETS.length) {
+      out = out.filter((r) =>
+        r.best ? pickMarkets.has(r.best.market as PickMarket) : false,
+      );
+    } else if (pickMarkets.size === 0) {
+      out = [];
     }
     if (minConf > 0) {
       out = out.filter((r) => (r.best?.probability ?? 0) >= minConf);
@@ -823,7 +833,7 @@ function TodaysPicksPanel({
       );
     }
     return out;
-  }, [upcomingRows, pickComp, pickMarket, minConf, pickQuery]);
+  }, [upcomingRows, pickComp, pickMarkets, minConf, pickQuery]);
 
   const confSteps: { label: string; value: number }[] = [
     { label: "Any", value: 0 },
@@ -833,16 +843,24 @@ function TodaysPicksPanel({
     { label: "≥ 80%", value: 80 },
   ];
 
-  const markets: { label: string; value: typeof pickMarket }[] = [
-    { label: "All markets", value: "all" },
+  const pickMarketChips: { label: string; value: PickMarket }[] = [
     { label: "1X2", value: "1x2" },
     { label: "O/U 2.5", value: "ou_25" },
     { label: "BTTS", value: "btts" },
   ];
+  const togglePickMarket = (m: PickMarket) => {
+    setPickMarkets((prev) => {
+      const next = new Set(prev);
+      if (next.has(m)) next.delete(m);
+      else next.add(m);
+      return next;
+    });
+  };
+  const allPickMarketsOn = pickMarkets.size === ALL_PICK_MARKETS.length;
 
   const activeFilters =
     (pickComp !== "all" ? 1 : 0) +
-    (pickMarket !== "all" ? 1 : 0) +
+    (allPickMarketsOn ? 0 : 1) +
     (minConf > 0 ? 1 : 0) +
     (pickQuery.trim() ? 1 : 0);
 
@@ -911,7 +929,7 @@ function TodaysPicksPanel({
               onClick={() => {
                 setPickQuery("");
                 setPickComp("all");
-                setPickMarket("all");
+                setPickMarkets(new Set(ALL_PICK_MARKETS));
                 setMinConf(0);
               }}
             >
@@ -926,17 +944,28 @@ function TodaysPicksPanel({
               Market
             </span>
             <div className="-mx-1 flex flex-1 gap-1.5 overflow-x-auto px-1">
-              {markets.map((m) => (
-                <Button
-                  key={m.value}
-                  variant={pickMarket === m.value ? "default" : "secondary"}
-                  size="sm"
-                  onClick={() => setPickMarket(m.value)}
-                  className="shrink-0"
-                >
-                  {m.label}
-                </Button>
-              ))}
+              <Button
+                variant={allPickMarketsOn ? "default" : "secondary"}
+                size="sm"
+                onClick={() => setPickMarkets(new Set(ALL_PICK_MARKETS))}
+                className="shrink-0"
+              >
+                All
+              </Button>
+              {pickMarketChips.map((m) => {
+                const active = pickMarkets.has(m.value);
+                return (
+                  <Button
+                    key={m.value}
+                    variant={active ? "default" : "secondary"}
+                    size="sm"
+                    onClick={() => togglePickMarket(m.value)}
+                    className="shrink-0"
+                  >
+                    {m.label}
+                  </Button>
+                );
+              })}
             </div>
           </div>
 
@@ -1543,7 +1572,14 @@ function ChatBubble({ message }: { message: CoachChatMessage }) {
 }
 
 function CoachPicksPanel() {
-  const [market, setMarket] = useState<CoachMarket>("any");
+  // Multi-select set of markets the AI is allowed to pick from. Default =
+  // every concrete market on. Empty = nothing → user must pick at least one.
+  const ALL_COACH_MARKETS: CoachMarket[] = [
+    "1x2","ou_25","btts","double_chance","dnb","ah","home_to_score","away_to_score",
+  ];
+  const [coachMarkets, setCoachMarkets] = useState<Set<CoachMarket>>(
+    () => new Set(ALL_COACH_MARKETS),
+  );
   const [minProb, setMinProb] = useState<number>(60);
   const [maxPicks, setMaxPicks] = useState<number>(5);
   const [busy, setBusy] = useState(false);
@@ -1553,7 +1589,6 @@ function CoachPicksPanel() {
   const [considered, setConsidered] = useState(0);
 
   const markets: { label: string; value: CoachMarket; hint: string }[] = [
-    { label: "Any market", value: "any", hint: "Best signals across 1X2, O/U 2.5 and BTTS" },
     { label: "Match Result (1X2)", value: "1x2", hint: "Home / Draw / Away" },
     { label: "Over/Under 2.5", value: "ou_25", hint: "Total goals" },
     { label: "Both Teams To Score", value: "btts", hint: "BTTS Yes / No" },
@@ -1567,11 +1602,29 @@ function CoachPicksPanel() {
   const probSteps = [50, 55, 60, 65, 70, 75, 80];
   const pickCounts = [3, 5, 7, 10];
 
+  const allCoachMarketsOn = coachMarkets.size === ALL_COACH_MARKETS.length;
+  const toggleCoachMarket = (m: CoachMarket) => {
+    setCoachMarkets((prev) => {
+      const next = new Set(prev);
+      if (next.has(m)) next.delete(m);
+      else next.add(m);
+      return next;
+    });
+  };
+
   const ask = async () => {
+    if (coachMarkets.size === 0) {
+      toast.error("Pick at least one market");
+      return;
+    }
     setBusy(true);
     try {
       const res = await getCoachRecommendations({
-        data: { market, minProbability: minProb, maxPicks },
+        data: {
+          markets: Array.from(coachMarkets),
+          minProbability: minProb,
+          maxPicks,
+        },
       });
       setRecs(res.recommendations);
       setSummary(res.summary);
@@ -1611,23 +1664,52 @@ function CoachPicksPanel() {
       {/* Controls */}
       <div className="space-y-4 rounded-2xl border border-border/60 bg-secondary/30 p-4">
         <div>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            Market
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Markets · {coachMarkets.size}/{ALL_COACH_MARKETS.length}
+            </div>
+            <div className="flex gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCoachMarkets(new Set(ALL_COACH_MARKETS))}
+                disabled={allCoachMarketsOn}
+                className="h-7 px-2 text-[11px]"
+              >
+                Select all
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCoachMarkets(new Set())}
+                disabled={coachMarkets.size === 0}
+                className="h-7 px-2 text-[11px]"
+              >
+                Clear
+              </Button>
+            </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {markets.map((m) => {
-              const active = market === m.value;
+              const active = coachMarkets.has(m.value);
               return (
                 <button
                   key={m.value}
-                  onClick={() => setMarket(m.value)}
+                  onClick={() => toggleCoachMarket(m.value)}
                   className={`rounded-xl border px-3 py-2.5 text-left transition ${
                     active
                       ? "border-primary bg-primary/15"
                       : "border-border/60 bg-background/40 hover:border-primary/60"
                   }`}
                 >
-                  <div className={`font-display text-sm font-bold ${active ? "text-primary" : ""}`}>
+                  <div className={`flex items-center gap-2 font-display text-sm font-bold ${active ? "text-primary" : ""}`}>
+                    <span
+                      className={`grid h-4 w-4 place-content-center rounded border ${
+                        active ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                      }`}
+                    >
+                      {active ? "✓" : ""}
+                    </span>
                     {m.label}
                   </div>
                   <div className="mt-0.5 text-[11px] text-muted-foreground">{m.hint}</div>

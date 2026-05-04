@@ -78,6 +78,19 @@ function BuilderPage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiRationale, setAiRationale] = useState<string | null>(null);
 
+  // Multi-select of allowed market groups (filters LegPicker AND restricts AI).
+  const ALL_GROUPS = LEG_GROUPS.map((g) => g.key);
+  const [allowedGroups, setAllowedGroups] = useState<Set<BuilderLegMeta["group"]>>(
+    () => new Set(ALL_GROUPS),
+  );
+  const toggleGroup = (k: BuilderLegMeta["group"]) =>
+    setAllowedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
   }, [loading, user, navigate]);
@@ -176,11 +189,16 @@ function BuilderPage() {
 
   const generateWithAi = async () => {
     if (!selectedMatch) return toast.error("Pick a match first");
+    if (allowedGroups.size < 2) return toast.error("Pick at least 2 market groups");
     setAiBusy(true);
     setAiRationale(null);
     try {
       const res = await getAiBetBuilder({
-        data: { matchId: selectedMatch.id, riskLevel: aiRisk },
+        data: {
+          matchId: selectedMatch.id,
+          riskLevel: aiRisk,
+          allowedGroups: Array.from(allowedGroups),
+        },
       });
       if (res.error) {
         toast.error(res.error);
@@ -312,6 +330,11 @@ function BuilderPage() {
               busy={aiBusy}
               rationale={aiRationale}
               onGenerate={generateWithAi}
+              groups={LEG_GROUPS}
+              allowedGroups={allowedGroups}
+              onToggleGroup={toggleGroup}
+              onSelectAllGroups={() => setAllowedGroups(new Set(ALL_GROUPS))}
+              onClearGroups={() => setAllowedGroups(new Set())}
             />
           )}
 
@@ -321,6 +344,7 @@ function BuilderPage() {
               busy={busy}
               legs={legs}
               onToggle={toggleLeg}
+              allowedGroups={allowedGroups}
             />
           )}
         </section>
@@ -607,11 +631,13 @@ function LegPicker({
   busy,
   legs,
   onToggle,
+  allowedGroups,
 }: {
   data: BetBuilderResponse | null;
   busy: boolean;
   legs: BuilderLegId[];
   onToggle: (id: BuilderLegId) => void;
+  allowedGroups?: Set<BuilderLegMeta["group"]>;
 }) {
   const conflictSet = useMemo(
     () => new Set(data?.conflicts ?? []),
@@ -634,7 +660,7 @@ function LegPicker({
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {LEG_GROUPS.map((g) => {
+          {LEG_GROUPS.filter((g) => !allowedGroups || allowedGroups.has(g.key)).map((g) => {
             const items = BUILDER_LEGS.filter((l) => l.group === g.key);
             return (
               <div key={g.key} className="rounded-xl border border-border/40 bg-secondary/20 p-3">
@@ -732,12 +758,22 @@ function AiBuilderPanel({
   busy,
   rationale,
   onGenerate,
+  groups,
+  allowedGroups,
+  onToggleGroup,
+  onSelectAllGroups,
+  onClearGroups,
 }: {
   risk: "safe" | "balanced" | "longshot";
   onRiskChange: (r: "safe" | "balanced" | "longshot") => void;
   busy: boolean;
   rationale: string | null;
   onGenerate: () => void;
+  groups: Array<{ key: BuilderLegMeta["group"]; title: string }>;
+  allowedGroups: Set<BuilderLegMeta["group"]>;
+  onToggleGroup: (k: BuilderLegMeta["group"]) => void;
+  onSelectAllGroups: () => void;
+  onClearGroups: () => void;
 }) {
   const RISKS: Array<{
     id: "safe" | "balanced" | "longshot";
@@ -760,6 +796,36 @@ function AiBuilderPanel({
       <p className="mb-3 text-xs text-muted-foreground">
         Let the model pick a correlated, non-conflicting set of legs from the cached match probabilities. You can still tweak the result.
       </p>
+      <div className="mb-3 rounded-xl border border-border/50 bg-background/40 p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+            Markets to consider · {allowedGroups.size}/{groups.length}
+          </div>
+          <div className="flex gap-1">
+            <Button type="button" variant="ghost" size="sm" onClick={onSelectAllGroups} className="h-6 px-2 text-[10px]">All</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={onClearGroups} className="h-6 px-2 text-[10px]">Clear</Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {groups.map((g) => {
+            const active = allowedGroups.has(g.key);
+            return (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => onToggleGroup(g.key)}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] transition ${
+                  active
+                    ? "border-primary/60 bg-primary/20 text-primary"
+                    : "border-border/50 bg-background/40 text-foreground/70 hover:border-primary/40"
+                }`}
+              >
+                {g.title}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-xl border border-border/50 bg-background/40 p-1">
           {RISKS.map((r) => {

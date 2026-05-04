@@ -17,6 +17,7 @@ import {
   conflictingLegs,
   BUILDER_LEGS,
   type BuilderLegId,
+  type BuilderLegMeta,
 } from "@/lib/football/predictor";
 import { generateCommentary } from "./aiCommentary.server";
 import { generateAiBetBuilder, type RiskLevel } from "./aiBetBuilder.server";
@@ -444,6 +445,7 @@ function extendedCandidates(
   predictions: MatchPredictions,
   base: { matchId: number; homeTeam: string; awayTeam: string; competition: string | null; kickoff: string },
   market: CoachMarket,
+  allowed?: Set<CoachMarket> | null,
 ): Array<{
   matchId: number;
   homeTeam: string;
@@ -458,8 +460,9 @@ function extendedCandidates(
 }> {
   const out: ReturnType<typeof extendedCandidates> = [];
   const findM = (m: string) => predictions.markets.find((x) => x.market === m);
+  const ok = (m: CoachMarket) => isMarketAllowed(m, market, allowed);
 
-  if (market === "any" || market === "double_chance") {
+  if (ok("double_chance")) {
     const dc = findM("double_chance");
     if (dc) {
       for (const [sel, prob] of Object.entries(dc.probabilities)) {
@@ -471,7 +474,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "dnb") {
+  if (ok("dnb")) {
     const dnb = findM("dnb");
     if (dnb) {
       for (const [sel, prob] of Object.entries(dnb.probabilities)) {
@@ -480,7 +483,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "ah") {
+  if (ok("ah")) {
     const ah = findM("ah");
     if (ah) {
       for (const [sel, prob] of Object.entries(ah.probabilities)) {
@@ -488,7 +491,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "home_to_score") {
+  if (ok("home_to_score")) {
     const hts = findM("home_to_score");
     if (hts) {
       for (const [sel, prob] of Object.entries(hts.probabilities)) {
@@ -496,7 +499,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "away_to_score") {
+  if (ok("away_to_score")) {
     const ats = findM("away_to_score");
     if (ats) {
       for (const [sel, prob] of Object.entries(ats.probabilities)) {
@@ -642,6 +645,37 @@ export type CoachMarket =
   | "home_to_score"
   | "away_to_score";
 
+/**
+ * Returns true when a candidate `market` should be included given the
+ * legacy single-select `singleMarket` filter and an optional explicit
+ * multi-select set. Rules:
+ *   - If `allowed` is provided and non-empty AND does not contain "any",
+ *     only markets in the set pass.
+ *   - Otherwise we fall back to the single `singleMarket` value
+ *     ("any" passes everything; a specific value passes only itself).
+ */
+function isMarketAllowed(
+  market: CoachMarket,
+  singleMarket: CoachMarket,
+  allowed?: Set<CoachMarket> | null,
+): boolean {
+  if (allowed && allowed.size > 0 && !allowed.has("any")) {
+    return allowed.has(market);
+  }
+  return singleMarket === "any" || singleMarket === market;
+}
+
+/** Build a normalized Set<CoachMarket> from a possibly-undefined input. */
+function normalizeMarkets(input?: CoachMarket[] | null): Set<CoachMarket> | null {
+  if (!input || !Array.isArray(input) || input.length === 0) return null;
+  const set = new Set<CoachMarket>();
+  for (const m of input) {
+    if (typeof m !== "string") continue;
+    set.add(m);
+  }
+  return set.size > 0 ? set : null;
+}
+
 export interface CoachRecommendation {
   matchId: number;
   homeTeam: string;
@@ -680,11 +714,12 @@ function marketLabel(m: CoachMarket): string {
 
 export const getCoachRecommendations = createServerFn({ method: "POST" })
   .inputValidator(
-    (input: { market?: CoachMarket; minProbability?: number; maxPicks?: number } | undefined) =>
+    (input: { market?: CoachMarket; markets?: CoachMarket[]; minProbability?: number; maxPicks?: number } | undefined) =>
       input ?? {},
   )
   .handler(async ({ data }): Promise<CoachResponse> => {
     const market: CoachMarket = data.market ?? "any";
+    const allowed = normalizeMarkets(data.markets);
     const minProbability = Math.max(0, Math.min(95, data.minProbability ?? 55));
     const maxPicks = Math.max(1, Math.min(10, data.maxPicks ?? 5));
 
@@ -762,20 +797,20 @@ export const getCoachRecommendations = createServerFn({ method: "POST" })
           competition: f.competition?.name ?? null,
           kickoff: f.utcDate,
         };
-        if ((market === "any" || market === "1x2") && oneXTwo) {
+        if (isMarketAllowed("1x2", market, allowed) && oneXTwo) {
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "1", selectionLabel: `${f.homeTeam.shortName ?? f.homeTeam.name} to win`, probability: oneXTwo.home });
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "X", selectionLabel: "Draw", probability: oneXTwo.draw });
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "2", selectionLabel: `${f.awayTeam.shortName ?? f.awayTeam.name} to win`, probability: oneXTwo.away });
         }
-        if ((market === "any" || market === "ou_25") && ou25) {
+        if (isMarketAllowed("ou_25", market, allowed) && ou25) {
           candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Over", selectionLabel: "Over 2.5 goals", probability: ou25.over });
           candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Under", selectionLabel: "Under 2.5 goals", probability: ou25.under });
         }
-        if ((market === "any" || market === "btts") && btts) {
+        if (isMarketAllowed("btts", market, allowed) && btts) {
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
         }
-        candidates.push(...extendedCandidates(cached.payload.predictions, base, market));
+        candidates.push(...extendedCandidates(cached.payload.predictions, base, market, allowed));
       }
 
       // 4. Filter by min probability, sort, take top N (one per match wins out)
@@ -1181,6 +1216,7 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
       legs?: number;            // 2..5
       minProbability?: number;  // per-leg floor, 0..95
       market?: CoachMarket;     // "any" | "1x2" | "ou_25" | "btts"
+      markets?: CoachMarket[];  // optional multi-select; overrides `market`
       targetCombinedOdds?: number; // optional: aim combined fair odds near this
     } | undefined) => input ?? {},
   )
@@ -1188,6 +1224,7 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
     const targetLegs = Math.max(2, Math.min(5, data.legs ?? 3));
     const minProbability = Math.max(0, Math.min(95, data.minProbability ?? 60));
     const market: CoachMarket = data.market ?? "any";
+    const allowed = normalizeMarkets(data.markets);
     const targetCombinedOdds =
       typeof data.targetCombinedOdds === "number" && data.targetCombinedOdds > 1
         ? Math.min(1000, data.targetCombinedOdds)
@@ -1303,20 +1340,20 @@ export const getAccumulatorBuilder = createServerFn({ method: "POST" })
           competition: f.competition?.name ?? null,
           kickoff: f.utcDate,
         };
-        if ((market === "any" || market === "1x2") && oneXTwo) {
+        if (isMarketAllowed("1x2", market, allowed) && oneXTwo) {
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "1", selectionLabel: `${f.homeTeam.shortName ?? f.homeTeam.name} to win`, probability: oneXTwo.home });
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "X", selectionLabel: "Draw", probability: oneXTwo.draw });
           candidates.push({ ...base, market: "1x2", marketLabel: "Match Result", selection: "2", selectionLabel: `${f.awayTeam.shortName ?? f.awayTeam.name} to win`, probability: oneXTwo.away });
         }
-        if ((market === "any" || market === "ou_25") && ou25) {
+        if (isMarketAllowed("ou_25", market, allowed) && ou25) {
           candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Over", selectionLabel: "Over 2.5 goals", probability: ou25.over });
           candidates.push({ ...base, market: "ou_25", marketLabel: "Goals", selection: "Under", selectionLabel: "Under 2.5 goals", probability: ou25.under });
         }
-        if ((market === "any" || market === "btts") && btts) {
+        if (isMarketAllowed("btts", market, allowed) && btts) {
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "Yes", selectionLabel: "Both teams to score: Yes", probability: btts.yes });
           candidates.push({ ...base, market: "btts", marketLabel: "BTTS", selection: "No", selectionLabel: "Both teams to score: No", probability: btts.no });
         }
-        candidates.push(...extendedCandidates(cached.predictions, base, market));
+        candidates.push(...extendedCandidates(cached.predictions, base, market, allowed));
       }
 
       // Filter by probability floor, keep best per (match,market) so we don't
@@ -1712,12 +1749,25 @@ export interface AiBetBuilderResponse {
 }
 
 export const getAiBetBuilder = createServerFn({ method: "POST" })
-  .inputValidator((input: { matchId: number; riskLevel: RiskLevel }) => input)
+  .inputValidator(
+    (input: {
+      matchId: number;
+      riskLevel: RiskLevel;
+      allowedGroups?: string[];
+    }) => input,
+  )
   .handler(async ({ data }): Promise<AiBetBuilderResponse> => {
     try {
       const supabase = adminClient();
       const matchId = Number(data.matchId);
       const riskLevel: RiskLevel = data.riskLevel ?? "balanced";
+      const allowedGroups = Array.isArray(data.allowedGroups)
+        ? (data.allowedGroups.filter(
+            (g): g is BuilderLegMeta["group"] =>
+              typeof g === "string" &&
+              ["result","double_chance","dnb","ou_15","ou_25","btts","home_scores","away_scores"].includes(g),
+          ))
+        : undefined;
 
       const { data: cached } = await supabase
         .from("predictions_cache")
@@ -1770,6 +1820,7 @@ export const getAiBetBuilder = createServerFn({ method: "POST" })
         expectedGoalsAway: payload.predictions.expectedGoalsAway,
         legProbabilities,
         riskLevel,
+        allowedGroups,
       });
 
       if (ai.error || ai.legs.length < 2) {
