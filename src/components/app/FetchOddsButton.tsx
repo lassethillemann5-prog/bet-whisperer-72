@@ -17,7 +17,7 @@ export function FetchOddsButton({
   const { user } = useAuth();
   const [busy, setBusy] = useState(false);
 
-  async function handle() {
+  async function handle(forceRefresh: boolean) {
     if (!user) {
       toast.error("Sign in to fetch odds");
       return;
@@ -25,17 +25,17 @@ export function FetchOddsButton({
     setBusy(true);
     try {
       const result = await fetchMatchOdds({
-        data: { matchId, userId: user.id },
+        data: { matchId, userId: user.id, forceRefresh },
       });
       if (result.error) {
         toast.error(result.error);
       } else if (result.rows.length === 0) {
-        toast.warning("No bet365 odds available for this match yet");
+        toast.warning("No odds available for this match yet");
       } else {
         toast.success(
           result.cacheHit
-            ? `Loaded today's cached bet365 odds (${result.rows.length} markets)`
-            : `Fetched bet365 odds (${result.rows.length} markets) · ${result.creditsUsed} credits used`,
+            ? `Loaded cached odds (${result.rows.length} markets)`
+            : `Fetched ${result.rows.length} markets · ${result.creditsUsed} credits used`,
         );
       }
       onFetched(result);
@@ -50,10 +50,9 @@ export function FetchOddsButton({
     <Button
       size="sm"
       variant={hasOdds ? "secondary" : "default"}
-      onClick={handle}
+      onClick={() => handle(hasOdds)}
       disabled={busy}
       className="gap-1.5"
-      title="Uses cached bet365 odds for 24 hours to save Odds API credits"
     >
       {busy ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -62,7 +61,7 @@ export function FetchOddsButton({
       ) : (
         <Download className="h-3.5 w-3.5" />
       )}
-      {busy ? "Fetching…" : hasOdds ? "Reload daily odds" : "Fetch bet365 odds"}
+      {busy ? "Fetching…" : hasOdds ? "Refresh odds" : "Fetch odds"}
     </Button>
   );
 }
