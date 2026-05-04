@@ -1748,12 +1748,25 @@ export interface AiBetBuilderResponse {
 }
 
 export const getAiBetBuilder = createServerFn({ method: "POST" })
-  .inputValidator((input: { matchId: number; riskLevel: RiskLevel }) => input)
+  .inputValidator(
+    (input: {
+      matchId: number;
+      riskLevel: RiskLevel;
+      allowedGroups?: string[];
+    }) => input,
+  )
   .handler(async ({ data }): Promise<AiBetBuilderResponse> => {
     try {
       const supabase = adminClient();
       const matchId = Number(data.matchId);
       const riskLevel: RiskLevel = data.riskLevel ?? "balanced";
+      const allowedGroups = Array.isArray(data.allowedGroups)
+        ? (data.allowedGroups.filter(
+            (g): g is BuilderLegMeta["group"] =>
+              typeof g === "string" &&
+              ["result","double_chance","dnb","ou_15","ou_25","btts","home_scores","away_scores"].includes(g),
+          ))
+        : undefined;
 
       const { data: cached } = await supabase
         .from("predictions_cache")
@@ -1806,6 +1819,7 @@ export const getAiBetBuilder = createServerFn({ method: "POST" })
         expectedGoalsAway: payload.predictions.expectedGoalsAway,
         legProbabilities,
         riskLevel,
+        allowedGroups,
       });
 
       if (ai.error || ai.legs.length < 2) {
