@@ -46,6 +46,20 @@ export const Route = createFileRoute("/accumulator")({
 
 const MIN_LEGS = 2;
 const MAX_LEGS = 5;
+const ALL_ACCA_MARKETS: CoachMarket[] = [
+  "1x2","ou_25","btts","double_chance","dnb","ah","home_to_score","away_to_score",
+];
+const ACCA_MARKET_LABELS: Record<CoachMarket, string> = {
+  any: "Any",
+  "1x2": "1X2",
+  ou_25: "O/U 2.5",
+  btts: "BTTS",
+  double_chance: "Double Chance",
+  dnb: "Draw No Bet",
+  ah: "Asian Handicap",
+  home_to_score: "Home to Score",
+  away_to_score: "Away to Score",
+};
 
 type EditableLeg = AccumulatorLeg & { decimalOdds: string };
 
@@ -56,7 +70,9 @@ function AccumulatorPage() {
   // Builder controls
   const [legCount, setLegCount] = useState<number>(3);
   const [minProb, setMinProb] = useState<number>(60);
-  const [market, setMarket] = useState<CoachMarket>("any");
+  const [accaMarkets, setAccaMarkets] = useState<Set<CoachMarket>>(
+    () => new Set(ALL_ACCA_MARKETS),
+  );
   const [useTargetOdds, setUseTargetOdds] = useState<boolean>(false);
   const [targetOdds, setTargetOdds] = useState<string>("5.00");
 
@@ -92,13 +108,17 @@ function AccumulatorPage() {
   }, [now]);
 
   const generate = async () => {
+    if (accaMarkets.size === 0) {
+      toast.error("Pick at least one market");
+      return;
+    }
     setBusy(true);
     try {
       const res = await getAccumulatorBuilder({
         data: {
           legs: legCount,
           minProbability: minProb,
-          market,
+          markets: Array.from(accaMarkets),
           targetCombinedOdds: useTargetOdds ? Number(targetOdds.replace(",", ".")) : undefined,
         },
       });
