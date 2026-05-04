@@ -777,7 +777,13 @@ function TodaysPicksPanel({
 }) {
   const [pickQuery, setPickQuery] = useState("");
   const [pickComp, setPickComp] = useState<string>("all");
-  const [pickMarket, setPickMarket] = useState<"all" | "1x2" | "ou_25" | "btts">("all");
+  // Multi-select set of allowed markets (matched against r.best.market).
+  // Defaults to ALL markets selected — same effect as the old "all" value.
+  const ALL_PICK_MARKETS = ["1x2", "ou_25", "btts"] as const;
+  type PickMarket = (typeof ALL_PICK_MARKETS)[number];
+  const [pickMarkets, setPickMarkets] = useState<Set<PickMarket>>(
+    () => new Set(ALL_PICK_MARKETS),
+  );
   const [minConf, setMinConf] = useState<number>(0);
   const [now, setNow] = useState(() => Date.now());
 
@@ -806,8 +812,12 @@ function TodaysPicksPanel({
     if (pickComp !== "all") {
       out = out.filter((r) => competitionKey(r.match.competition) === pickComp);
     }
-    if (pickMarket !== "all") {
-      out = out.filter((r) => r.best?.market === pickMarket);
+    if (pickMarkets.size > 0 && pickMarkets.size < ALL_PICK_MARKETS.length) {
+      out = out.filter((r) =>
+        r.best ? pickMarkets.has(r.best.market as PickMarket) : false,
+      );
+    } else if (pickMarkets.size === 0) {
+      out = [];
     }
     if (minConf > 0) {
       out = out.filter((r) => (r.best?.probability ?? 0) >= minConf);
@@ -823,7 +833,7 @@ function TodaysPicksPanel({
       );
     }
     return out;
-  }, [upcomingRows, pickComp, pickMarket, minConf, pickQuery]);
+  }, [upcomingRows, pickComp, pickMarkets, minConf, pickQuery]);
 
   const confSteps: { label: string; value: number }[] = [
     { label: "Any", value: 0 },
@@ -833,16 +843,24 @@ function TodaysPicksPanel({
     { label: "≥ 80%", value: 80 },
   ];
 
-  const markets: { label: string; value: typeof pickMarket }[] = [
-    { label: "All markets", value: "all" },
+  const pickMarketChips: { label: string; value: PickMarket }[] = [
     { label: "1X2", value: "1x2" },
     { label: "O/U 2.5", value: "ou_25" },
     { label: "BTTS", value: "btts" },
   ];
+  const togglePickMarket = (m: PickMarket) => {
+    setPickMarkets((prev) => {
+      const next = new Set(prev);
+      if (next.has(m)) next.delete(m);
+      else next.add(m);
+      return next;
+    });
+  };
+  const allPickMarketsOn = pickMarkets.size === ALL_PICK_MARKETS.length;
 
   const activeFilters =
     (pickComp !== "all" ? 1 : 0) +
-    (pickMarket !== "all" ? 1 : 0) +
+    (allPickMarketsOn ? 0 : 1) +
     (minConf > 0 ? 1 : 0) +
     (pickQuery.trim() ? 1 : 0);
 
@@ -911,7 +929,7 @@ function TodaysPicksPanel({
               onClick={() => {
                 setPickQuery("");
                 setPickComp("all");
-                setPickMarket("all");
+                setPickMarkets(new Set(ALL_PICK_MARKETS));
                 setMinConf(0);
               }}
             >
@@ -926,17 +944,28 @@ function TodaysPicksPanel({
               Market
             </span>
             <div className="-mx-1 flex flex-1 gap-1.5 overflow-x-auto px-1">
-              {markets.map((m) => (
-                <Button
-                  key={m.value}
-                  variant={pickMarket === m.value ? "default" : "secondary"}
-                  size="sm"
-                  onClick={() => setPickMarket(m.value)}
-                  className="shrink-0"
-                >
-                  {m.label}
-                </Button>
-              ))}
+              <Button
+                variant={allPickMarketsOn ? "default" : "secondary"}
+                size="sm"
+                onClick={() => setPickMarkets(new Set(ALL_PICK_MARKETS))}
+                className="shrink-0"
+              >
+                All
+              </Button>
+              {pickMarketChips.map((m) => {
+                const active = pickMarkets.has(m.value);
+                return (
+                  <Button
+                    key={m.value}
+                    variant={active ? "default" : "secondary"}
+                    size="sm"
+                    onClick={() => togglePickMarket(m.value)}
+                    className="shrink-0"
+                  >
+                    {m.label}
+                  </Button>
+                );
+              })}
             </div>
           </div>
 
