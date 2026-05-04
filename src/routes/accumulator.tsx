@@ -289,25 +289,57 @@ function AccumulatorPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <Label className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Markets to consider
-                </Label>
-                <Select value={market} onValueChange={(v) => setMarket(v as CoachMarket)}>
-                  <SelectTrigger className="mt-2">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">Any market (recommended)</SelectItem>
-                    <SelectItem value="1x2">Match Result (1X2) only</SelectItem>
-                    <SelectItem value="ou_25">Over/Under 2.5 only</SelectItem>
-                    <SelectItem value="btts">BTTS only</SelectItem>
-                    <SelectItem value="double_chance">Double Chance only</SelectItem>
-                    <SelectItem value="dnb">Draw No Bet only</SelectItem>
-                    <SelectItem value="ah">Asian Handicap only</SelectItem>
-                    <SelectItem value="home_to_score">Home to Score only</SelectItem>
-                    <SelectItem value="away_to_score">Away to Score only</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    Markets to consider · {accaMarkets.size}/{ALL_ACCA_MARKETS.length}
+                  </Label>
+                  <div className="flex gap-1.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAccaMarkets(new Set(ALL_ACCA_MARKETS))}
+                      disabled={accaMarkets.size === ALL_ACCA_MARKETS.length}
+                      className="h-7 px-2 text-[11px]"
+                    >
+                      All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAccaMarkets(new Set())}
+                      disabled={accaMarkets.size === 0}
+                      className="h-7 px-2 text-[11px]"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {ALL_ACCA_MARKETS.map((m) => {
+                    const active = accaMarkets.has(m);
+                    return (
+                      <Button
+                        key={m}
+                        type="button"
+                        variant={active ? "default" : "secondary"}
+                        size="sm"
+                        onClick={() =>
+                          setAccaMarkets((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(m)) next.delete(m);
+                            else next.add(m);
+                            return next;
+                          })
+                        }
+                        className="h-8"
+                      >
+                        {ACCA_MARKET_LABELS[m]}
+                      </Button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="sm:col-span-2 rounded-xl border border-border/60 bg-background/40 p-3">
