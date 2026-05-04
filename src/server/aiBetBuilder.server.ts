@@ -1,4 +1,5 @@
 import { BUILDER_LEGS, type BuilderLegId } from "@/lib/football/predictor";
+import type { BuilderLegMeta } from "@/lib/football/predictor";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -12,6 +13,9 @@ interface AiBuilderInput {
   expectedGoalsAway: number;
   legProbabilities: Record<BuilderLegId, number>;
   riskLevel: RiskLevel;
+  /** Optional restriction — if provided, AI may only choose legs whose
+   *  group is in this set. Empty/undefined means "all groups allowed". */
+  allowedGroups?: BuilderLegMeta["group"][];
 }
 
 export interface AiBuilderResult {
@@ -34,7 +38,17 @@ export async function generateAiBetBuilder(input: AiBuilderInput): Promise<AiBui
     return { legs: [], rationale: "", error: "AI unavailable — Lovable AI key not configured." };
   }
 
-  const legCatalog = BUILDER_LEGS.map((l) => ({
+  const allowedGroupSet =
+    input.allowedGroups && input.allowedGroups.length > 0
+      ? new Set(input.allowedGroups)
+      : null;
+  const filteredLegs = allowedGroupSet
+    ? BUILDER_LEGS.filter((l) => allowedGroupSet.has(l.group))
+    : BUILDER_LEGS;
+  if (filteredLegs.length < 2) {
+    return { legs: [], rationale: "", error: "Pick at least 2 market groups for the AI to combine." };
+  }
+  const legCatalog = filteredLegs.map((l) => ({
     id: l.id,
     market: l.marketLabel,
     selection: l.selectionLabel,
@@ -87,7 +101,7 @@ ${JSON.stringify(legCatalog, null, 2)}`;
                   legs: {
                     type: "array",
                     description: "Chosen leg IDs from the provided catalog (2-5 items).",
-                    items: { type: "string", enum: BUILDER_LEGS.map((l) => l.id) },
+                    items: { type: "string", enum: filteredLegs.map((l) => l.id) },
                     minItems: 2,
                     maxItems: 5,
                   },
