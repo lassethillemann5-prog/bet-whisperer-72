@@ -444,6 +444,7 @@ function extendedCandidates(
   predictions: MatchPredictions,
   base: { matchId: number; homeTeam: string; awayTeam: string; competition: string | null; kickoff: string },
   market: CoachMarket,
+  allowed?: Set<CoachMarket> | null,
 ): Array<{
   matchId: number;
   homeTeam: string;
@@ -458,8 +459,9 @@ function extendedCandidates(
 }> {
   const out: ReturnType<typeof extendedCandidates> = [];
   const findM = (m: string) => predictions.markets.find((x) => x.market === m);
+  const ok = (m: CoachMarket) => isMarketAllowed(m, market, allowed);
 
-  if (market === "any" || market === "double_chance") {
+  if (ok("double_chance")) {
     const dc = findM("double_chance");
     if (dc) {
       for (const [sel, prob] of Object.entries(dc.probabilities)) {
@@ -471,7 +473,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "dnb") {
+  if (ok("dnb")) {
     const dnb = findM("dnb");
     if (dnb) {
       for (const [sel, prob] of Object.entries(dnb.probabilities)) {
@@ -480,7 +482,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "ah") {
+  if (ok("ah")) {
     const ah = findM("ah");
     if (ah) {
       for (const [sel, prob] of Object.entries(ah.probabilities)) {
@@ -488,7 +490,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "home_to_score") {
+  if (ok("home_to_score")) {
     const hts = findM("home_to_score");
     if (hts) {
       for (const [sel, prob] of Object.entries(hts.probabilities)) {
@@ -496,7 +498,7 @@ function extendedCandidates(
       }
     }
   }
-  if (market === "any" || market === "away_to_score") {
+  if (ok("away_to_score")) {
     const ats = findM("away_to_score");
     if (ats) {
       for (const [sel, prob] of Object.entries(ats.probabilities)) {
