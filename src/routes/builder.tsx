@@ -78,6 +78,19 @@ function BuilderPage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiRationale, setAiRationale] = useState<string | null>(null);
 
+  // Multi-select of allowed market groups (filters LegPicker AND restricts AI).
+  const ALL_GROUPS = LEG_GROUPS.map((g) => g.key);
+  const [allowedGroups, setAllowedGroups] = useState<Set<BuilderLegMeta["group"]>>(
+    () => new Set(ALL_GROUPS),
+  );
+  const toggleGroup = (k: BuilderLegMeta["group"]) =>
+    setAllowedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
   }, [loading, user, navigate]);
@@ -176,11 +189,16 @@ function BuilderPage() {
 
   const generateWithAi = async () => {
     if (!selectedMatch) return toast.error("Pick a match first");
+    if (allowedGroups.size < 2) return toast.error("Pick at least 2 market groups");
     setAiBusy(true);
     setAiRationale(null);
     try {
       const res = await getAiBetBuilder({
-        data: { matchId: selectedMatch.id, riskLevel: aiRisk },
+        data: {
+          matchId: selectedMatch.id,
+          riskLevel: aiRisk,
+          allowedGroups: Array.from(allowedGroups),
+        },
       });
       if (res.error) {
         toast.error(res.error);
@@ -312,6 +330,11 @@ function BuilderPage() {
               busy={aiBusy}
               rationale={aiRationale}
               onGenerate={generateWithAi}
+              groups={LEG_GROUPS}
+              allowedGroups={allowedGroups}
+              onToggleGroup={toggleGroup}
+              onSelectAllGroups={() => setAllowedGroups(new Set(ALL_GROUPS))}
+              onClearGroups={() => setAllowedGroups(new Set())}
             />
           )}
 
@@ -321,6 +344,7 @@ function BuilderPage() {
               busy={busy}
               legs={legs}
               onToggle={toggleLeg}
+              allowedGroups={allowedGroups}
             />
           )}
         </section>
