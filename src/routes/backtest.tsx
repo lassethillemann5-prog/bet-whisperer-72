@@ -257,7 +257,7 @@ function BacktestPage() {
               <p className="text-sm text-muted-foreground">No runs yet.</p>
             ) : (
               <ul className="space-y-2">
-                {runs.map((r: { id: string }) => (
+                {runs.map((r: RunRow) => (
                   <RunListItem
                     key={r.id}
                     run={r}
