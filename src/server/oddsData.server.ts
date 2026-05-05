@@ -11,7 +11,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const ODDS_BASE = "https://api.the-odds-api.com/v4";
 const CLOSING_ODDS_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30d — closing odds never change
-const LIVE_ODDS_TTL_MS = 1000 * 60 * 30; // 30 min for pre-match live odds
+const LIVE_ODDS_TTL_MS = 1000 * 60 * 60 * 26; // 26h — refreshed daily by cron
+const DAILY_SNAPSHOT_TTL_MS = 1000 * 60 * 60 * 26; // 26h
+const DAILY_SNAPSHOT_KEY = "odds-daily-snapshot";
 
 /** Bookmakers we want prices from. Using `bookmakers=` instead of `regions=`
  *  is cheaper: we pay 1 region price for up to 10 bookmakers. */
@@ -247,6 +249,113 @@ async function writeLiveOddsToCache(matchId: number, payload: MatchOddsResult): 
   }
 }
 
+// ============================================================================
+// Daily snapshot — one API call returns ALL soccer events. We cache the raw
+// event list for 24h+ and serve every per-match request from it (0 credits).
+// ============================================================================
+
+async function readDailySnapshot(): Promise<OddsApiEvent[] | null> {
+  const sb = cacheClient();
+  if (!sb) return null;
+  try {
+    const { data } = await sb
+      .from("fixtures_cache")
+      .select("payload, updated_at")
+      .eq("cache_key", DAILY_SNAPSHOT_KEY)
+      .maybeSingle();
+    if (!data?.payload || !data.updated_at) return null;
+    if (Date.now() - new Date(data.updated_at).getTime() > DAILY_SNAPSHOT_TTL_MS) return null;
+    return (data.payload as { events: OddsApiEvent[] }).events ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeDailySnapshot(events: OddsApiEvent[]): Promise<void> {
+  const sb = cacheClient();
+  if (!sb) return;
+  try {
+    await sb.from("fixtures_cache").upsert({
+      cache_key: DAILY_SNAPSHOT_KEY,
+      payload: { events } as unknown,
+      updated_at: new Date().toISOString(),
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+function buildResultFromEvent(matchId: number, ev: OddsApiEvent): MatchOddsResult {
+  const grouped = new Map<string, MarketOddsRow>();
+  for (const bk of ev.bookmakers) {
+    if (!TARGET_BOOKMAKERS.includes(bk.key as typeof TARGET_BOOKMAKERS[number])) continue;
+    for (const mkt of bk.markets) {
+      for (const out of mkt.outcomes) {
+        // We need a MatchSummary for outcomeToSelection's team-name disambig.
+        // For 1x2 we fall back to event team names which match by construction.
+        const fakeMatch = {
+          id: matchId,
+          homeTeam: { name: ev.home_team },
+          awayTeam: { name: ev.away_team },
+          utcDate: ev.commence_time,
+        } as unknown as MatchSummary;
+        const mapped = outcomeToSelection(mkt.key, out, fakeMatch);
+        if (!mapped) continue;
+        if (!(out.price > 1)) continue;
+        const key = `${mapped.market}::${mapped.selection}`;
+        let row = grouped.get(key);
+        if (!row) {
+          row = { market: mapped.market, selection: mapped.selection, prices: [], best: 0 };
+          grouped.set(key, row);
+        }
+        row.prices.push({ bookmaker: bk.key, price: out.price });
+        if (out.price > row.best) row.best = out.price;
+      }
+    }
+  }
+  return {
+    matchId,
+    rows: Array.from(grouped.values()),
+    cacheHit: true,
+    creditsUsed: 0,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Run by daily cron. Hits The Odds API once for ALL soccer events and
+ * caches the result. Cost: ~30 credits per day total.
+ * Also pre-warms per-match cache for any tracked fixtures it can match.
+ */
+export async function fetchDailyOddsSnapshot(): Promise<{
+  ok: boolean;
+  events: number;
+  matched: number;
+  creditsUsed: number;
+  error?: string;
+}> {
+  const apiKey = getKey();
+  if (!apiKey) return { ok: false, events: 0, matched: 0, creditsUsed: 0, error: "ODDS_API_KEY not configured" };
+  try {
+    const url =
+      `${ODDS_BASE}/sports/soccer/odds?apiKey=${apiKey}` +
+      `&bookmakers=${TARGET_BOOKMAKERS.join(",")}` +
+      `&markets=${MARKETS_TO_FETCH.join(",")}` +
+      `&oddsFormat=decimal&dateFormat=iso`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, events: 0, matched: 0, creditsUsed: 0, error: `The Odds API ${res.status}: ${body.slice(0, 200)}` };
+    }
+    const events = (await res.json()) as OddsApiEvent[];
+    await writeDailySnapshot(events);
+    const creditsUsed = MARKETS_TO_FETCH.length * 1 * 10;
+    return { ok: true, events: events.length, matched: 0, creditsUsed };
+  } catch (e) {
+    return { ok: false, events: 0, matched: 0, creditsUsed: 0, error: e instanceof Error ? e.message : "Unknown error" };
+  }
+}
+
 async function logUsage(
   userId: string,
   matchId: number,
@@ -284,6 +393,17 @@ export async function fetchMatchLiveOdds(input: {
     if (cached) {
       await logUsage(userId, match.id, "all", 0, true);
       return { ...cached, cacheHit: true, creditsUsed: 0 };
+    }
+    // Try the daily snapshot — 0 credits if found.
+    const snapshot = await readDailySnapshot();
+    if (snapshot) {
+      const ev = snapshot.find((e) => eventMatches(e, match));
+      if (ev) {
+        const result = buildResultFromEvent(match.id, ev);
+        await writeLiveOddsToCache(match.id, result);
+        await logUsage(userId, match.id, "all", 0, true);
+        return result;
+      }
     }
   }
 
