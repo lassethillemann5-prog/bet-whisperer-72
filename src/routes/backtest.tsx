@@ -190,7 +190,7 @@ function BacktestPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {leagues.map((l) => (
+                    {leagues.map((l: { id: number; name: string; country: string }) => (
                       <SelectItem key={l.id} value={String(l.id)}>
                         {l.name} · {l.country}
                       </SelectItem>
@@ -257,7 +257,7 @@ function BacktestPage() {
               <p className="text-sm text-muted-foreground">No runs yet.</p>
             ) : (
               <ul className="space-y-2">
-                {runs.map((r) => (
+                {runs.map((r: { id: string }) => (
                   <RunListItem
                     key={r.id}
                     run={r}
