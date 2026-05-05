@@ -19,6 +19,7 @@ import { Route as BacktestRouteImport } from './routes/backtest'
 import { Route as AccumulatorRouteImport } from './routes/accumulator'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchMatchIdRouteImport } from './routes/match.$matchId'
+import { Route as ApiPublicHooksDailyOddsSnapshotRouteImport } from './routes/api/public/hooks/daily-odds-snapshot'
 
 const TrackedRoute = TrackedRouteImport.update({
   id: '/tracked',
@@ -70,6 +71,12 @@ const MatchMatchIdRoute = MatchMatchIdRouteImport.update({
   path: '/match/$matchId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksDailyOddsSnapshotRoute =
+  ApiPublicHooksDailyOddsSnapshotRouteImport.update({
+    id: '/api/public/hooks/daily-odds-snapshot',
+    path: '/api/public/hooks/daily-odds-snapshot',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/stats': typeof StatsRoute
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
+  '/api/public/hooks/daily-odds-snapshot': typeof ApiPublicHooksDailyOddsSnapshotRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,6 +102,7 @@ export interface FileRoutesByTo {
   '/stats': typeof StatsRoute
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
+  '/api/public/hooks/daily-odds-snapshot': typeof ApiPublicHooksDailyOddsSnapshotRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,6 +116,7 @@ export interface FileRoutesById {
   '/stats': typeof StatsRoute
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
+  '/api/public/hooks/daily-odds-snapshot': typeof ApiPublicHooksDailyOddsSnapshotRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +131,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/tracked'
     | '/match/$matchId'
+    | '/api/public/hooks/daily-odds-snapshot'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +144,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/tracked'
     | '/match/$matchId'
+    | '/api/public/hooks/daily-odds-snapshot'
   id:
     | '__root__'
     | '/'
@@ -145,6 +157,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/tracked'
     | '/match/$matchId'
+    | '/api/public/hooks/daily-odds-snapshot'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +171,7 @@ export interface RootRouteChildren {
   StatsRoute: typeof StatsRoute
   TrackedRoute: typeof TrackedRoute
   MatchMatchIdRoute: typeof MatchMatchIdRoute
+  ApiPublicHooksDailyOddsSnapshotRoute: typeof ApiPublicHooksDailyOddsSnapshotRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -232,6 +246,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchMatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/daily-odds-snapshot': {
+      id: '/api/public/hooks/daily-odds-snapshot'
+      path: '/api/public/hooks/daily-odds-snapshot'
+      fullPath: '/api/public/hooks/daily-odds-snapshot'
+      preLoaderRoute: typeof ApiPublicHooksDailyOddsSnapshotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -246,7 +267,17 @@ const rootRouteChildren: RootRouteChildren = {
   StatsRoute: StatsRoute,
   TrackedRoute: TrackedRoute,
   MatchMatchIdRoute: MatchMatchIdRoute,
+  ApiPublicHooksDailyOddsSnapshotRoute: ApiPublicHooksDailyOddsSnapshotRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}
