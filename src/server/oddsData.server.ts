@@ -19,6 +19,9 @@ const DAILY_SNAPSHOT_KEY = "odds-daily-snapshot";
  *  is cheaper: we pay 1 region price for up to 10 bookmakers. */
 const TARGET_BOOKMAKERS = ["bet365", "betano"] as const;
 const MARKETS_TO_FETCH = ["h2h", "totals", "btts"] as const;
+/** Markets supported by the broad /sports/soccer/odds endpoint (used by daily snapshot).
+ *  `btts` is only available on per-sport-key endpoints, so we exclude it here. */
+const SNAPSHOT_MARKETS = ["h2h", "totals"] as const;
 
 function cacheClient(): SupabaseClient | null {
   const url = process.env.SUPABASE_URL;
@@ -340,7 +343,7 @@ export async function fetchDailyOddsSnapshot(): Promise<{
     const url =
       `${ODDS_BASE}/sports/soccer/odds?apiKey=${apiKey}` +
       `&bookmakers=${TARGET_BOOKMAKERS.join(",")}` +
-      `&markets=${MARKETS_TO_FETCH.join(",")}` +
+      `&markets=${SNAPSHOT_MARKETS.join(",")}` +
       `&oddsFormat=decimal&dateFormat=iso`;
     const res = await fetch(url);
     if (!res.ok) {
@@ -349,7 +352,7 @@ export async function fetchDailyOddsSnapshot(): Promise<{
     }
     const events = (await res.json()) as OddsApiEvent[];
     await writeDailySnapshot(events);
-    const creditsUsed = MARKETS_TO_FETCH.length * 1 * 10;
+    const creditsUsed = SNAPSHOT_MARKETS.length * 1 * 10;
     return { ok: true, events: events.length, matched: 0, creditsUsed };
   } catch (e) {
     return { ok: false, events: 0, matched: 0, creditsUsed: 0, error: e instanceof Error ? e.message : "Unknown error" };
