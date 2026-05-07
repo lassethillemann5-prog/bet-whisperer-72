@@ -190,6 +190,13 @@ function MatchPage() {
   );
 }
 
+function confidenceLabel(r?: number): { label: string; color: string } {
+  if (r == null) return { label: "Unknown", color: "text-muted-foreground bg-secondary/60" };
+  if (r >= 0.75) return { label: "High confidence", color: "text-emerald-400 bg-emerald-500/10" };
+  if (r >= 0.4) return { label: "Medium confidence", color: "text-amber-400 bg-amber-500/10" };
+  return { label: "Low confidence", color: "text-destructive bg-destructive/10" };
+}
+
 function MatchHeader({
   match,
   preds,
@@ -202,6 +209,7 @@ function MatchHeader({
   onToggle: () => void;
 }) {
   const d = new Date(match.utcDate);
+  const conf = confidenceLabel(preds.modelReliability);
   return (
     <section className="overflow-hidden rounded-3xl border border-border/60 card-elevated">
       <div className="flex items-center justify-between border-b border-border/50 px-5 py-3">
@@ -213,10 +221,18 @@ function MatchHeader({
             {match.competition?.name}
           </span>
         </div>
-        <Button variant="ghost" size="sm" onClick={onToggle} className="gap-1.5">
-          {isTracked ? <StarOff className="h-3.5 w-3.5" /> : <Star className="h-3.5 w-3.5" />}
-          {isTracked ? "Untrack" : "Track"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <span
+            title={`Model reliability: ${preds.modelReliability != null ? Math.round(preds.modelReliability * 100) : "?"}%`}
+            className={`rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.15em] ${conf.color}`}
+          >
+            {conf.label}
+          </span>
+          <Button variant="ghost" size="sm" onClick={onToggle} className="gap-1.5">
+            {isTracked ? <StarOff className="h-3.5 w-3.5" /> : <Star className="h-3.5 w-3.5" />}
+            {isTracked ? "Untrack" : "Track"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 p-6 md:p-10">
@@ -783,27 +799,55 @@ function FairOddsMarket({
   findOdds: (market: string, selection: string) => MarketOddsRow | null;
 }) {
   const entries = Object.entries(m.probabilities);
+
+  // Compute edge for each selection so we can flag the market as containing value.
+  const edgesWithSelection = entries.map(([selection, probPct]) => {
+    const prob01 = Math.max(0.001, Math.min(0.999, probPct / 100));
+    const oddsRow = findOdds(m.market, selection);
+    const bestOdds = oddsRow?.best ?? null;
+    const edgePct = bestOdds != null ? (prob01 * bestOdds - 1) * 100 : null;
+    return { selection, probPct, prob01, oddsRow, bestOdds, edgePct };
+  });
+  const bestEdge = Math.max(...edgesWithSelection.map((e) => e.edgePct ?? -Infinity));
+  const hasValue = bestEdge >= 5;
+  const hasSmallEdge = !hasValue && bestEdge >= 0.5;
+
   return (
-    <div className="rounded-xl border border-border/50 bg-secondary/30 p-4">
-      <div className="mb-3 flex items-center justify-between">
+    <div className={`rounded-xl border bg-secondary/30 p-4 ${
+      hasValue
+        ? "border-primary/60 ring-1 ring-primary/30"
+        : hasSmallEdge
+        ? "border-emerald-500/40"
+        : "border-border/50"
+    }`}>
+      <div className="mb-3 flex items-center justify-between gap-2">
         <div className="font-display text-sm font-semibold">{m.label}</div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          pick · <span className="text-primary">{m.pick}</span>
+        <div className="flex items-center gap-2">
+          {hasValue && (
+            <span className="rounded-full bg-primary/20 px-2.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-primary font-bold">
+              ✦ Value +{bestEdge.toFixed(1)}%
+            </span>
+          )}
+          {hasSmallEdge && !hasValue && (
+            <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-emerald-400">
+              Edge +{bestEdge.toFixed(1)}%
+            </span>
+          )}
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            pick · <span className="text-primary">{m.pick}</span>
+          </div>
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
-        {entries.map(([selection, probPct]) => {
-          const prob01 = Math.max(0.001, Math.min(0.999, probPct / 100));
+        {edgesWithSelection.map(({ selection, probPct, prob01, oddsRow, bestOdds, edgePct }) => {
           const fair = 1 / prob01;
           const isPick = selection === m.pick || probPct === Math.max(...entries.map(([, v]) => v));
-          const oddsRow = findOdds(m.market, selection);
-          const market = oddsRow?.best ?? null;
-          const edgePct = market != null ? (prob01 * market - 1) * 100 : null;
+          const isValueLeg = edgePct != null && edgePct >= 5;
           const edgeColor =
             edgePct == null
               ? ""
               : edgePct >= 5
-              ? "text-primary"
+              ? "text-primary font-bold"
               : edgePct >= 0.5
               ? "text-emerald-400"
               : edgePct >= -0.5
@@ -813,18 +857,29 @@ function FairOddsMarket({
             <div
               key={selection}
               className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 ${
-                isPick ? "bg-primary/10 ring-1 ring-primary/40" : "bg-background/40"
+                isValueLeg
+                  ? "bg-primary/15 ring-1 ring-primary/50"
+                  : isPick
+                  ? "bg-primary/10 ring-1 ring-primary/40"
+                  : "bg-background/40"
               }`}
             >
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{selection}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-medium">{selection}</span>
+                  {isValueLeg && (
+                    <span className="shrink-0 rounded bg-primary/20 px-1 font-mono text-[8px] uppercase tracking-wider text-primary">
+                      VALUE
+                    </span>
+                  )}
+                </div>
                 <div className="font-mono text-[10px] tabular-nums text-muted-foreground">
                   {probPct.toFixed(1)}% · fair {fair.toFixed(2)}
                 </div>
-                {market != null && (
+                {bestOdds != null && (
                   <div className="mt-1 flex items-center gap-2 font-mono text-[10px] tabular-nums">
-                    <span className="text-muted-foreground">market {market.toFixed(2)}</span>
-                    <span className={`font-semibold ${edgeColor}`}>
+                    <span className="text-muted-foreground">market {bestOdds.toFixed(2)}</span>
+                    <span className={edgeColor}>
                       {edgePct! >= 0 ? "+" : ""}
                       {edgePct!.toFixed(1)}% edge
                     </span>
@@ -849,11 +904,15 @@ function FairOddsMarket({
                   utcDate: match.utcDate,
                   market: m.market,
                   selection,
-                  decimalOdds: market ?? fair,
+                  decimalOdds: bestOdds ?? fair,
                   modelProbability: prob01,
                 }}
                 trigger={
-                  <Button size="sm" variant={isPick ? "default" : "secondary"} className="shrink-0">
+                  <Button
+                    size="sm"
+                    variant={isValueLeg ? "default" : isPick ? "default" : "secondary"}
+                    className="shrink-0"
+                  >
                     Log bet
                   </Button>
                 }

@@ -98,4 +98,10 @@ export interface MatchPredictions {
   commentary: string;
   homeInjuries?: InjuryImpact | null;
   awayInjuries?: InjuryImpact | null;
+  /**
+   * Model reliability: 0 (no form data — league-average prior only) to 1
+   * (8+ recent weighted matches for both teams). Drives the confidence label
+   * shown in the UI.
+   */
+  modelReliability?: number;
 }

@@ -67,6 +67,57 @@ function gradeBet(
       if (/^no/i.test(sel)) return yes ? "lost" : "won";
       return "pending";
     }
+    case "double_chance": {
+      const winner = home > away ? "1" : home < away ? "2" : "X";
+      const norm = sel.toUpperCase().replace(/\s/g, "");
+      // Accept "1X", "12", "X2" or long-form "HOME OR DRAW" etc.
+      if (["1X", "HOMEORDRAW", "1XHOME"].some((v) => norm.includes(v.replace(/\s/g, ""))))
+        return winner !== "2" ? "won" : "lost";
+      if (["12", "HOMEORAWAY", "WINORWIN"].some((v) => norm.includes(v.replace(/\s/g, ""))))
+        return winner !== "X" ? "won" : "lost";
+      if (["X2", "DRAWORAWAY"].some((v) => norm.includes(v.replace(/\s/g, ""))))
+        return winner !== "1" ? "won" : "lost";
+      return "pending";
+    }
+    case "dnb": {
+      // Draw → stake returned (void). Win counts. Loss counts.
+      if (home === away) return "void";
+      const homeWins = home > away;
+      const norm = sel.toUpperCase();
+      if (["HOME", "H", "1", "DNB_HOME"].some((v) => norm.includes(v))) return homeWins ? "won" : "lost";
+      if (["AWAY", "A", "2", "DNB_AWAY"].some((v) => norm.includes(v))) return homeWins ? "lost" : "won";
+      return "pending";
+    }
+    case "ah": {
+      // Asian Handicap with a half-line (no push possible).
+      // Selection is stored as e.g. "Home -1.5" or "Away +1.5".
+      // Parse the team side and handicap value.
+      const normAh = sel.toUpperCase();
+      const isHome =
+        normAh.startsWith("HOME") || normAh.startsWith("H ") || normAh.startsWith("1");
+      const isAway =
+        normAh.startsWith("AWAY") || normAh.startsWith("A ") || normAh.startsWith("2");
+      if (!isHome && !isAway) return "pending";
+      const lineMatch = sel.match(/([+-]?\d+(?:\.\d+)?)/);
+      if (!lineMatch) return "pending";
+      const line = parseFloat(lineMatch[1]);
+      // Adjusted margin: positive = home is ahead after handicap.
+      const adjustedMargin = isHome ? (home - away) + line : (away - home) + line;
+      if (adjustedMargin > 0) return isHome ? "won" : "lost";
+      if (adjustedMargin < 0) return isHome ? "lost" : "won";
+      // adjustedMargin === 0 can't happen with half-lines, but treat as void.
+      return "void";
+    }
+    case "home_to_score": {
+      if (/^yes/i.test(sel)) return home > 0 ? "won" : "lost";
+      if (/^no/i.test(sel)) return home > 0 ? "lost" : "won";
+      return "pending";
+    }
+    case "away_to_score": {
+      if (/^yes/i.test(sel)) return away > 0 ? "won" : "lost";
+      if (/^no/i.test(sel)) return away > 0 ? "lost" : "won";
+      return "pending";
+    }
     default:
       // Unknown / bookmaker-specific market — leave for manual settlement.
       return "pending";

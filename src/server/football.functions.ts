@@ -51,7 +51,13 @@ async function computeAndCacheLitePrediction(
     fetchTeamFormLite(fixture.homeTeam.id),
     fetchTeamFormLite(fixture.awayTeam.id),
   ]);
-  const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(homeForm, awayForm);
+  const { markets, expectedGoalsHome, expectedGoalsAway, modelReliability } = predictMarkets(
+    homeForm,
+    awayForm,
+    null,
+    null,
+    fixture.competition?.name,
+  );
   const predictions: MatchPredictions = {
     matchId: fixture.id,
     generatedAt: new Date().toISOString(),
@@ -61,6 +67,7 @@ async function computeAndCacheLitePrediction(
     expectedGoalsAway,
     markets,
     commentary: "",
+    modelReliability,
   };
   const payload = { match: fixture, predictions };
   try {
@@ -197,15 +204,17 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
         let marketsBackfilled = false;
         if (havingForm && missingMarkets) {
           try {
-            const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
+            const { markets, expectedGoalsHome, expectedGoalsAway, modelReliability } = predictMarkets(
               payload.predictions.homeForm,
               payload.predictions.awayForm,
               payload.predictions.homeInjuries ?? null,
               payload.predictions.awayInjuries ?? null,
+              payload.match.competition?.name,
             );
             payload.predictions.markets = markets;
             payload.predictions.expectedGoalsHome = expectedGoalsHome;
             payload.predictions.expectedGoalsAway = expectedGoalsAway;
+            payload.predictions.modelReliability = modelReliability;
             marketsBackfilled = true;
           } catch (e) {
             console.warn("markets backfill failed", e);
@@ -259,11 +268,12 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
       fetchTeamInjuries(match.homeTeam.id),
       fetchTeamInjuries(match.awayTeam.id),
     ]);
-    const { markets, expectedGoalsHome, expectedGoalsAway } = predictMarkets(
+    const { markets, expectedGoalsHome, expectedGoalsAway, modelReliability } = predictMarkets(
       homeForm,
       awayForm,
       homeInjuries,
       awayInjuries,
+      match.competition?.name,
     );
     const partial = {
       homeForm,
@@ -273,6 +283,7 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
       markets,
       homeInjuries,
       awayInjuries,
+      modelReliability,
     };
     const commentary = await generateCommentary(match, partial);
     const predictions: MatchPredictions = {
