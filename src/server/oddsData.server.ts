@@ -106,11 +106,7 @@ function eventMatches(ev: OddsApiEvent, match: MatchSummary): boolean {
 }
 
 /** Map our internal selection token to The Odds API outcome name. */
-function selectionToOutcomeName(
-  market: string,
-  selection: string,
-  match: MatchSummary,
-): string | null {
+function selectionToOutcomeName(market: string, selection: string, match: MatchSummary): string | null {
   const sel = selection.trim().toUpperCase();
   if (market === "1x2") {
     if (["1", "HOME", "H"].includes(sel)) return match.homeTeam.name;
@@ -291,7 +287,7 @@ async function writeDailySnapshot(events: OddsApiEvent[]): Promise<void> {
 function buildResultFromEvent(matchId: number, ev: OddsApiEvent): MatchOddsResult {
   const grouped = new Map<string, MarketOddsRow>();
   for (const bk of ev.bookmakers) {
-    if (!TARGET_BOOKMAKERS.includes(bk.key as typeof TARGET_BOOKMAKERS[number])) continue;
+    if (!TARGET_BOOKMAKERS.includes(bk.key as (typeof TARGET_BOOKMAKERS)[number])) continue;
     for (const mkt of bk.markets) {
       for (const out of mkt.outcomes) {
         // We need a MatchSummary for outcomeToSelection's team-name disambig.
@@ -348,14 +344,26 @@ export async function fetchDailyOddsSnapshot(): Promise<{
     const res = await fetch(url);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { ok: false, events: 0, matched: 0, creditsUsed: 0, error: `The Odds API ${res.status}: ${body.slice(0, 200)}` };
+      return {
+        ok: false,
+        events: 0,
+        matched: 0,
+        creditsUsed: 0,
+        error: `The Odds API ${res.status}: ${body.slice(0, 200)}`,
+      };
     }
     const events = (await res.json()) as OddsApiEvent[];
     await writeDailySnapshot(events);
     const creditsUsed = SNAPSHOT_MARKETS.length * 1 * 10;
     return { ok: true, events: events.length, matched: 0, creditsUsed };
   } catch (e) {
-    return { ok: false, events: 0, matched: 0, creditsUsed: 0, error: e instanceof Error ? e.message : "Unknown error" };
+    return {
+      ok: false,
+      events: 0,
+      matched: 0,
+      creditsUsed: 0,
+      error: e instanceof Error ? e.message : "Unknown error",
+    };
   }
 }
 
@@ -463,7 +471,7 @@ export async function fetchMatchLiveOdds(input: {
     // Group: market+selection → bookmaker prices
     const grouped = new Map<string, MarketOddsRow>();
     for (const bk of ev.bookmakers) {
-      if (!TARGET_BOOKMAKERS.includes(bk.key as typeof TARGET_BOOKMAKERS[number])) continue;
+      if (!TARGET_BOOKMAKERS.includes(bk.key as (typeof TARGET_BOOKMAKERS)[number])) continue;
       for (const mkt of bk.markets) {
         for (const out of mkt.outcomes) {
           const mapped = outcomeToSelection(mkt.key, out, match);
