@@ -18,7 +18,7 @@ const DAILY_SNAPSHOT_KEY = "odds-daily-snapshot";
 /** Bookmakers we want prices from. Using `bookmakers=` instead of `regions=`
  *  is cheaper: we pay 1 region price for up to 10 bookmakers. */
 const TARGET_BOOKMAKERS = ["bet365", "betano"] as const;
-const MARKETS_TO_FETCH = ["h2h", "totals", "btts"] as const;
+const MARKETS_TO_FETCH = ["h2h", "totals"] as const;
 /** Markets supported by the broad /sports/soccer/odds endpoint (used by daily snapshot).
  *  `btts` is only available on per-sport-key endpoints, so we exclude it here. */
 const SNAPSHOT_MARKETS = ["h2h", "totals"] as const;
