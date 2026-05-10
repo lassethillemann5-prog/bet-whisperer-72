@@ -486,7 +486,7 @@ export async function fetchMatchLiveOdds(input: {
         fetchedAt: new Date().toISOString(),
         error: "No matching event found at bet365/betano",
       };
-      await writeLiveOddsToCache(match.id, empty);
+      // Don't cache empty/error results — odds may appear later (closer to kickoff).
       await logUsage(userId, match.id, "all", creditsUsed, false);
       return empty;
     }
