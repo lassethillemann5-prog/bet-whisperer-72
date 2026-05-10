@@ -15,6 +15,7 @@ import { LiveProbabilityBar } from "@/components/app/LiveProbabilityBar";
 import { LiveBadge } from "@/components/app/LiveBadge";
 import { FetchOddsButton } from "@/components/app/FetchOddsButton";
 import type { MatchOddsResult, MarketOddsRow } from "@/server/football.functions";
+import { fetchMatchOdds } from "@/server/football.functions";
 
 export const Route = createFileRoute("/match/$matchId")({
   loader: async ({ params }) => {
@@ -669,8 +670,23 @@ function FairOddsSection({
   match: MatchSummary;
   markets: MarketPrediction[];
 }) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [oddsResult, setOddsResult] = useState<MatchOddsResult | null>(null);
+
+  // Auto-load odds from cache on mount (0 credits if daily snapshot has it).
+  useEffect(() => {
+    if (!user || oddsResult) return;
+    let cancelled = false;
+    fetchMatchOdds({ data: { matchId: match.id, userId: user.id } })
+      .then((res) => {
+        if (!cancelled && !res.error) setOddsResult(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user, match.id, oddsResult]);
 
   function findOdds(market: string, selection: string): MarketOddsRow | null {
     if (!oddsResult) return null;
