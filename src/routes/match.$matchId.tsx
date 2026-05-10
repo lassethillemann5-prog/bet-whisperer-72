@@ -15,6 +15,7 @@ import { LiveProbabilityBar } from "@/components/app/LiveProbabilityBar";
 import { LiveBadge } from "@/components/app/LiveBadge";
 import { FetchOddsButton } from "@/components/app/FetchOddsButton";
 import type { MatchOddsResult, MarketOddsRow } from "@/server/football.functions";
+import { fetchMatchOdds } from "@/server/football.functions";
 
 export const Route = createFileRoute("/match/$matchId")({
   loader: async ({ params }) => {
