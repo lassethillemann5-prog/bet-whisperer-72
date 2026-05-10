@@ -87,22 +87,45 @@ function median(xs: number[]): number | null {
   return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
 }
 
+/** Normalize a team name for fuzzy comparison: strip accents, common suffixes/prefixes, punctuation. */
+function normalizeTeamName(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[.\-_/]/g, " ")
+    // strip common club tokens
+    .replace(/\b(fc|cf|sc|ac|afc|cd|sd|sv|bc|bk|if|ks|fk|sk|ks|ksc|tsg|tsv|fsv|vfb|vfl|borussia|club|de|del|los|las)\b/g, " ")
+    .replace(/\bsaint\b/g, "st")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function teamSimilar(a: string, b: string): boolean {
+  const na = normalizeTeamName(a);
+  const nb = normalizeTeamName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  // Token overlap — at least one shared non-trivial token (>= 4 chars)
+  const ta = new Set(na.split(" ").filter((t) => t.length >= 4));
+  const tb = nb.split(" ").filter((t) => t.length >= 4);
+  return tb.some((t) => ta.has(t));
+}
+
 /**
  * Find the The Odds API event that matches our fixture by team names + date.
  * The Odds API doesn't share IDs with API-Sports so we fuzzy-match.
  */
 function eventMatches(ev: OddsApiEvent, match: MatchSummary): boolean {
-  const homeOk =
-    ev.home_team.toLowerCase().includes(match.homeTeam.name.toLowerCase()) ||
-    match.homeTeam.name.toLowerCase().includes(ev.home_team.toLowerCase());
-  const awayOk =
-    ev.away_team.toLowerCase().includes(match.awayTeam.name.toLowerCase()) ||
-    match.awayTeam.name.toLowerCase().includes(ev.away_team.toLowerCase());
-  if (!homeOk || !awayOk) return false;
-  // Same calendar day (UTC) is enough — kickoff times can drift by minutes.
-  const evDay = ev.commence_time.slice(0, 10);
-  const matchDay = match.utcDate.slice(0, 10);
-  return evDay === matchDay;
+  if (!teamSimilar(ev.home_team, match.homeTeam.name)) return false;
+  if (!teamSimilar(ev.away_team, match.awayTeam.name)) return false;
+  // Allow ±1 day to absorb timezone drift between providers.
+  const evMs = new Date(ev.commence_time).getTime();
+  const matchMs = new Date(match.utcDate).getTime();
+  if (!Number.isFinite(evMs) || !Number.isFinite(matchMs)) return false;
+  return Math.abs(evMs - matchMs) <= 36 * 60 * 60 * 1000;
 }
 
 /** Map our internal selection token to The Odds API outcome name. */
