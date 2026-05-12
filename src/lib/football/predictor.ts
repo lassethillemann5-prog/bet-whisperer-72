@@ -1,5 +1,6 @@
 import type { MarketPrediction, TeamForm } from "./types";
 import type { InjuryImpact } from "./types";
+import { eloDistribution, logitPool1x2 } from "./elo";
 
 /** Poisson PMF */
 function poisson(k: number, lambda: number): number {
