@@ -153,6 +153,37 @@ function BacktestPage() {
     }
   };
 
+  const [calibBusy, setCalibBusy] = useState<"" | "calib" | "elo">("");
+  const onCalibrate = async () => {
+    setCalibBusy("calib");
+    const tid = toast.loading("Grid-searching league calibration — ~1-3 min…");
+    try {
+      const r = await runLeagueCalibration({
+        data: { leagueId, from, to, maxMatches },
+      });
+      toast.success(
+        `Saved · T=${Number(r.temperature).toFixed(2)} · HA=${Number(r.home_advantage).toFixed(2)} · Brier=${r.brier_1x2 != null ? Number(r.brier_1x2).toFixed(4) : "n/a"}`,
+        { id: tid },
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Calibration failed", { id: tid });
+    } finally {
+      setCalibBusy("");
+    }
+  };
+  const onEloRecompute = async () => {
+    setCalibBusy("elo");
+    const tid = toast.loading("Computing ELO from finished matches…");
+    try {
+      const r = await runLeagueEloRecompute({ data: { leagueId, from, to } });
+      toast.success(`ELO updated · ${r.teams} teams · ${r.matches} matches`, { id: tid });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "ELO recompute failed", { id: tid });
+    } finally {
+      setCalibBusy("");
+    }
+  };
+
   return (
     <AppShell>
       <header className="mb-6">
