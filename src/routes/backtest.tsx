@@ -287,6 +287,41 @@ function BacktestPage() {
           </section>
 
           <section className="rounded-xl border border-border/60 bg-card p-4">
+            <h2 className="mb-1 text-sm font-semibold">Live tuning</h2>
+            <p className="mb-3 text-[11px] text-muted-foreground">
+              Calibrate temperature & home-advantage for the selected league
+              and recompute ELO ratings from the date range above. Both are
+              picked up automatically by every prediction.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                onClick={onCalibrate}
+                disabled={calibBusy !== ""}
+                className="w-full"
+              >
+                {calibBusy === "calib" ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Tuning…</>
+                ) : (
+                  <>Calibrate league</>
+                )}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={onEloRecompute}
+                disabled={calibBusy !== ""}
+                className="w-full"
+              >
+                {calibBusy === "elo" ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Computing…</>
+                ) : (
+                  <>Recompute ELO</>
+                )}
+              </Button>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-border/60 bg-card p-4">
             <h2 className="mb-3 text-sm font-semibold">History</h2>
             {runs.length === 0 ? (
               <p className="text-sm text-muted-foreground">No runs yet.</p>
