@@ -227,6 +227,60 @@ export type Database = {
         }
         Relationships: []
       }
+      league_calibration: {
+        Row: {
+          brier_1x2: number | null
+          created_at: string
+          date_from: string | null
+          date_to: string | null
+          dc_rho: number
+          elo_weight: number
+          hitrate_1x2: number | null
+          home_advantage: number
+          league_id: number
+          league_name: string
+          logloss_1x2: number | null
+          matches_scored: number | null
+          temperature: number
+          updated_at: string
+          xg_weight: number
+        }
+        Insert: {
+          brier_1x2?: number | null
+          created_at?: string
+          date_from?: string | null
+          date_to?: string | null
+          dc_rho?: number
+          elo_weight?: number
+          hitrate_1x2?: number | null
+          home_advantage?: number
+          league_id: number
+          league_name: string
+          logloss_1x2?: number | null
+          matches_scored?: number | null
+          temperature?: number
+          updated_at?: string
+          xg_weight?: number
+        }
+        Update: {
+          brier_1x2?: number | null
+          created_at?: string
+          date_from?: string | null
+          date_to?: string | null
+          dc_rho?: number
+          elo_weight?: number
+          hitrate_1x2?: number | null
+          home_advantage?: number
+          league_id?: number
+          league_name?: string
+          logloss_1x2?: number | null
+          matches_scored?: number | null
+          temperature?: number
+          updated_at?: string
+          xg_weight?: number
+        }
+        Relationships: []
+      }
       odds_api_usage: {
         Row: {
           cache_hit: boolean
@@ -299,6 +353,39 @@ export type Database = {
           id?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      team_elo: {
+        Row: {
+          created_at: string
+          last_match_at: string | null
+          league_id: number
+          matches_played: number
+          rating: number
+          team_id: number
+          team_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          last_match_at?: string | null
+          league_id: number
+          matches_played?: number
+          rating?: number
+          team_id: number
+          team_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          last_match_at?: string | null
+          league_id?: number
+          matches_played?: number
+          rating?: number
+          team_id?: number
+          team_name?: string | null
+          updated_at?: string
         }
         Relationships: []
       }

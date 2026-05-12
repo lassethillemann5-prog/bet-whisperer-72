@@ -1,5 +1,6 @@
 import type { MarketPrediction, TeamForm } from "./types";
 import type { InjuryImpact } from "./types";
+import { eloDistribution, logitPool1x2 } from "./elo";
 
 /** Poisson PMF */
 function poisson(k: number, lambda: number): number {
@@ -255,6 +256,12 @@ export function predictMarkets(
   homeInjuries?: InjuryImpact | null,
   awayInjuries?: InjuryImpact | null,
   competitionName?: string | null,
+  opts?: {
+    leagueCfg?: { temperature?: number; homeAdvantage?: number };
+    eloHome?: number | null;
+    eloAway?: number | null;
+    eloWeight?: number;
+  },
 ): {
   markets: MarketPrediction[];
   expectedGoalsHome: number;
@@ -274,7 +281,11 @@ export function predictMarkets(
     rel * raw + (1 - rel) * LEAGUE_AVG_GOALS_PER_TEAM;
 
   const reliability = Math.min(h.reliability, a.reliability);
-  let lambdaHome = blend(lambdaHomeRaw, reliability) * leagueHomeAdvantage(competitionName);
+  const homeAdv =
+    opts?.leagueCfg?.homeAdvantage != null
+      ? opts.leagueCfg.homeAdvantage
+      : leagueHomeAdvantage(competitionName);
+  let lambdaHome = blend(lambdaHomeRaw, reliability) * homeAdv;
   let lambdaAway = blend(lambdaAwayRaw, reliability);
 
   // Apply injury penalties: missing key attackers reduce λ for this team's
@@ -307,7 +318,24 @@ export function predictMarkets(
   const total1x2 = pHome + pDraw + pAway || 1;
   pHome /= total1x2; pDraw /= total1x2; pAway /= total1x2;
   // Calibrate over-confident raw model probabilities.
-  [pHome, pDraw, pAway] = applyTemperature(pHome, pDraw, pAway);
+  const T = opts?.leagueCfg?.temperature ?? TEMPERATURE;
+  [pHome, pDraw, pAway] = applyTemperature(pHome, pDraw, pAway, T);
+
+  // Optional ELO logit-pool blend.
+  if (
+    opts?.eloHome != null &&
+    opts?.eloAway != null &&
+    (opts.eloWeight ?? 0) > 0
+  ) {
+    const w = Math.max(0, Math.min(1, opts.eloWeight ?? 0.3));
+    const prior = eloDistribution(opts.eloHome, opts.eloAway);
+    const pooled = logitPool1x2(
+      { pH: pHome, pD: pDraw, pA: pAway },
+      prior,
+      w,
+    );
+    pHome = pooled.pH; pDraw = pooled.pD; pAway = pooled.pA;
+  }
 
   // Over/Under
   const probGoals = (n: number) => {

@@ -20,6 +20,10 @@ import {
   getBacktestLeagues,
 } from "@/server/backtest.functions";
 import { FlaskConical, Loader2, Trash2, TrendingUp, Target, Activity, Calendar } from "lucide-react";
+import {
+  runLeagueCalibration,
+  runLeagueEloRecompute,
+} from "@/lib/football/leagueCalibration.functions";
 
 export const Route = createFileRoute("/backtest")({
   head: () => ({
@@ -149,6 +153,37 @@ function BacktestPage() {
     }
   };
 
+  const [calibBusy, setCalibBusy] = useState<"" | "calib" | "elo">("");
+  const onCalibrate = async () => {
+    setCalibBusy("calib");
+    const tid = toast.loading("Grid-searching league calibration — ~1-3 min…");
+    try {
+      const r = await runLeagueCalibration({
+        data: { leagueId, from, to, maxMatches },
+      });
+      toast.success(
+        `Saved · T=${Number(r.temperature).toFixed(2)} · HA=${Number(r.home_advantage).toFixed(2)} · Brier=${r.brier_1x2 != null ? Number(r.brier_1x2).toFixed(4) : "n/a"}`,
+        { id: tid },
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Calibration failed", { id: tid });
+    } finally {
+      setCalibBusy("");
+    }
+  };
+  const onEloRecompute = async () => {
+    setCalibBusy("elo");
+    const tid = toast.loading("Computing ELO from finished matches…");
+    try {
+      const r = await runLeagueEloRecompute({ data: { leagueId, from, to } });
+      toast.success(`ELO updated · ${r.teams} teams · ${r.matches} matches`, { id: tid });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "ELO recompute failed", { id: tid });
+    } finally {
+      setCalibBusy("");
+    }
+  };
+
   return (
     <AppShell>
       <header className="mb-6">
@@ -248,6 +283,41 @@ function BacktestPage() {
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Each match costs ~2 API calls. A 50-match run finishes in 30-60s.
               </p>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-border/60 bg-card p-4">
+            <h2 className="mb-1 text-sm font-semibold">Live tuning</h2>
+            <p className="mb-3 text-[11px] text-muted-foreground">
+              Calibrate temperature & home-advantage for the selected league
+              and recompute ELO ratings from the date range above. Both are
+              picked up automatically by every prediction.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                onClick={onCalibrate}
+                disabled={calibBusy !== ""}
+                className="w-full"
+              >
+                {calibBusy === "calib" ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Tuning…</>
+                ) : (
+                  <>Calibrate league</>
+                )}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={onEloRecompute}
+                disabled={calibBusy !== ""}
+                className="w-full"
+              >
+                {calibBusy === "elo" ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Computing…</>
+                ) : (
+                  <>Recompute ELO</>
+                )}
+              </Button>
             </div>
           </section>
 
