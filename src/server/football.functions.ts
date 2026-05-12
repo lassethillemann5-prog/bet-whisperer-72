@@ -293,12 +293,14 @@ export const getMatchWithPredictions = createServerFn({ method: "POST" })
       fetchTeamInjuries(match.homeTeam.id),
       fetchTeamInjuries(match.awayTeam.id),
     ]);
+    const predictorCtx = await loadPredictorContext(match);
     const { markets, expectedGoalsHome, expectedGoalsAway, modelReliability } = predictMarkets(
       homeForm,
       awayForm,
       homeInjuries,
       awayInjuries,
       match.competition?.name,
+      predictorCtx,
     );
     const partial = {
       homeForm,
