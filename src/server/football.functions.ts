@@ -23,6 +23,31 @@ import { generateCommentary } from "./aiCommentary.server";
 import { generateAiBetBuilder, type RiskLevel } from "./aiBetBuilder.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
 import { createClient } from "@supabase/supabase-js";
+import { getLeagueCalibration, getTeamEloPair } from "./leagueCalibration.server";
+
+/** Lookup per-league calibration + ELO for a fixture. Safe — returns nulls on
+ *  failure so the predictor falls back to defaults. */
+async function loadPredictorContext(match: MatchSummary) {
+  const leagueId = Number(match.competition?.code);
+  if (!Number.isFinite(leagueId)) return undefined;
+  try {
+    const [cal, elo] = await Promise.all([
+      getLeagueCalibration(leagueId),
+      getTeamEloPair(leagueId, match.homeTeam.id, match.awayTeam.id),
+    ]);
+    return {
+      leagueCfg: cal
+        ? { temperature: Number(cal.temperature), homeAdvantage: Number(cal.home_advantage) }
+        : undefined,
+      eloHome: elo.home,
+      eloAway: elo.away,
+      eloWeight: cal ? Number(cal.elo_weight) : 0.3,
+    };
+  } catch (e) {
+    console.warn("loadPredictorContext failed", e);
+    return undefined;
+  }
+}
 
 function adminClient() {
   const url = process.env.SUPABASE_URL;
