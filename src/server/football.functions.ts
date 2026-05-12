@@ -76,12 +76,14 @@ async function computeAndCacheLitePrediction(
     fetchTeamFormLite(fixture.homeTeam.id),
     fetchTeamFormLite(fixture.awayTeam.id),
   ]);
+  const predictorCtx = await loadPredictorContext(fixture);
   const { markets, expectedGoalsHome, expectedGoalsAway, modelReliability } = predictMarkets(
     homeForm,
     awayForm,
     null,
     null,
     fixture.competition?.name,
+    predictorCtx,
   );
   const predictions: MatchPredictions = {
     matchId: fixture.id,
