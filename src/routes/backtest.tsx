@@ -20,6 +20,10 @@ import {
   getBacktestLeagues,
 } from "@/server/backtest.functions";
 import { FlaskConical, Loader2, Trash2, TrendingUp, Target, Activity, Calendar } from "lucide-react";
+import {
+  runLeagueCalibration,
+  runLeagueEloRecompute,
+} from "@/lib/football/leagueCalibration.functions";
 
 export const Route = createFileRoute("/backtest")({
   head: () => ({
