@@ -23,13 +23,18 @@ import { generateCommentary } from "./aiCommentary.server";
 import { generateAiBetBuilder, type RiskLevel } from "./aiBetBuilder.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
 import { createClient } from "@supabase/supabase-js";
-import { getLeagueCalibration, getTeamEloPair } from "./leagueCalibration.server";
+import { getLeagueCalibration, getTeamEloPair, ensureLeagueEloBackfilled } from "./leagueCalibration.server";
 
 /** Lookup per-league calibration + ELO for a fixture. Safe — returns nulls on
  *  failure so the predictor falls back to defaults. */
 async function loadPredictorContext(match: MatchSummary) {
   const leagueId = Number(match.competition?.code);
   if (!Number.isFinite(leagueId)) return undefined;
+  // Fire-and-forget: if this league has no ELO ratings yet, kick off a
+  // background backfill from the last 365 days. The current request still
+  // proceeds with the (1500-default) ELO; subsequent requests will pick up
+  // the real ratings once the backfill completes.
+  ensureLeagueEloBackfilled(leagueId);
   try {
     const [cal, elo] = await Promise.all([
       getLeagueCalibration(leagueId),
