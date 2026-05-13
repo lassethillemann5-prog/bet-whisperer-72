@@ -24,6 +24,7 @@ import { generateAiBetBuilder, type RiskLevel } from "./aiBetBuilder.server";
 import type { MatchPredictions, MatchSummary } from "@/lib/football/types";
 import { createClient } from "@supabase/supabase-js";
 import { getLeagueCalibration, getTeamEloPair, ensureLeagueEloBackfilled } from "./leagueCalibration.server";
+import { getMatchOddsCachedOnly } from "./oddsData.server";
 
 /** Lookup per-league calibration + ELO for a fixture. Safe — returns nulls on
  *  failure so the predictor falls back to defaults. */
