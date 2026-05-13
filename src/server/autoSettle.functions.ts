@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { fetchMatch } from "./footballData.server";
 import type { MatchSummary } from "@/lib/football/types";
 import { fetchClosingOdds } from "./oddsData.server";
+import { updateEloAfterMatch } from "./leagueCalibration.server";
 
 function adminClient(): SupabaseClient {
   const url = process.env.SUPABASE_URL;
@@ -239,6 +240,30 @@ export const autoSettleBets = createServerFn({ method: "POST" })
       if (outcome === "void") voided++;
       else settled++;
       bankrollDelta += delta;
+
+      // Update ELO ratings for this fixture once (only on real settle, not
+      // void). Best-effort — never block settlement if ELO write fails.
+      if (outcome !== "void") {
+        const leagueId = Number(match.competition?.code);
+        const gh = match.score.fullTime.home;
+        const ga = match.score.fullTime.away;
+        if (Number.isFinite(leagueId) && gh != null && ga != null) {
+          try {
+            await updateEloAfterMatch({
+              leagueId,
+              homeId: match.homeTeam.id,
+              awayId: match.awayTeam.id,
+              homeName: match.homeTeam.name,
+              awayName: match.awayTeam.name,
+              goalsHome: gh,
+              goalsAway: ga,
+              matchDate: match.utcDate,
+            });
+          } catch (e) {
+            console.warn("ELO update failed for match", match.id, e);
+          }
+        }
+      }
     }
 
     if (bankrollDelta !== 0) {
