@@ -19,6 +19,7 @@ import { Route as BacktestRouteImport } from './routes/backtest'
 import { Route as AccumulatorRouteImport } from './routes/accumulator'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MatchMatchIdRouteImport } from './routes/match.$matchId'
+import { Route as ApiPublicHooksNightlyRecalibrateRouteImport } from './routes/api/public/hooks/nightly-recalibrate'
 import { Route as ApiPublicHooksDailyOddsSnapshotRouteImport } from './routes/api/public/hooks/daily-odds-snapshot'
 
 const TrackedRoute = TrackedRouteImport.update({
@@ -71,6 +72,12 @@ const MatchMatchIdRoute = MatchMatchIdRouteImport.update({
   path: '/match/$matchId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksNightlyRecalibrateRoute =
+  ApiPublicHooksNightlyRecalibrateRouteImport.update({
+    id: '/api/public/hooks/nightly-recalibrate',
+    path: '/api/public/hooks/nightly-recalibrate',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksDailyOddsSnapshotRoute =
   ApiPublicHooksDailyOddsSnapshotRouteImport.update({
     id: '/api/public/hooks/daily-odds-snapshot',
@@ -90,6 +97,7 @@ export interface FileRoutesByFullPath {
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
   '/api/public/hooks/daily-odds-snapshot': typeof ApiPublicHooksDailyOddsSnapshotRoute
+  '/api/public/hooks/nightly-recalibrate': typeof ApiPublicHooksNightlyRecalibrateRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -103,6 +111,7 @@ export interface FileRoutesByTo {
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
   '/api/public/hooks/daily-odds-snapshot': typeof ApiPublicHooksDailyOddsSnapshotRoute
+  '/api/public/hooks/nightly-recalibrate': typeof ApiPublicHooksNightlyRecalibrateRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -117,6 +126,7 @@ export interface FileRoutesById {
   '/tracked': typeof TrackedRoute
   '/match/$matchId': typeof MatchMatchIdRoute
   '/api/public/hooks/daily-odds-snapshot': typeof ApiPublicHooksDailyOddsSnapshotRoute
+  '/api/public/hooks/nightly-recalibrate': typeof ApiPublicHooksNightlyRecalibrateRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
     | '/tracked'
     | '/match/$matchId'
     | '/api/public/hooks/daily-odds-snapshot'
+    | '/api/public/hooks/nightly-recalibrate'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/tracked'
     | '/match/$matchId'
     | '/api/public/hooks/daily-odds-snapshot'
+    | '/api/public/hooks/nightly-recalibrate'
   id:
     | '__root__'
     | '/'
@@ -158,6 +170,7 @@ export interface FileRouteTypes {
     | '/tracked'
     | '/match/$matchId'
     | '/api/public/hooks/daily-odds-snapshot'
+    | '/api/public/hooks/nightly-recalibrate'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -172,6 +185,7 @@ export interface RootRouteChildren {
   TrackedRoute: typeof TrackedRoute
   MatchMatchIdRoute: typeof MatchMatchIdRoute
   ApiPublicHooksDailyOddsSnapshotRoute: typeof ApiPublicHooksDailyOddsSnapshotRoute
+  ApiPublicHooksNightlyRecalibrateRoute: typeof ApiPublicHooksNightlyRecalibrateRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -246,6 +260,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MatchMatchIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/nightly-recalibrate': {
+      id: '/api/public/hooks/nightly-recalibrate'
+      path: '/api/public/hooks/nightly-recalibrate'
+      fullPath: '/api/public/hooks/nightly-recalibrate'
+      preLoaderRoute: typeof ApiPublicHooksNightlyRecalibrateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/daily-odds-snapshot': {
       id: '/api/public/hooks/daily-odds-snapshot'
       path: '/api/public/hooks/daily-odds-snapshot'
@@ -268,6 +289,7 @@ const rootRouteChildren: RootRouteChildren = {
   TrackedRoute: TrackedRoute,
   MatchMatchIdRoute: MatchMatchIdRoute,
   ApiPublicHooksDailyOddsSnapshotRoute: ApiPublicHooksDailyOddsSnapshotRoute,
+  ApiPublicHooksNightlyRecalibrateRoute: ApiPublicHooksNightlyRecalibrateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

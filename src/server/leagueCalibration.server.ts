@@ -181,6 +181,53 @@ export async function recomputeLeagueElo(opts: {
   return { teams: rows.length, matches: fixtures.length };
 }
 
+/** Curated subset of BACKTEST_LEAGUES that the nightly cron refreshes.
+ *  Keep small to stay inside API-Sports & The Odds API daily budgets. */
+const NIGHTLY_LEAGUE_IDS = [39, 140, 78, 135, 61, 119, 88, 94, 2, 3];
+
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Refresh ELO + calibration for the curated nightly league list. Sequential
+ * to keep API load predictable. Best-effort per league: a single failure is
+ * logged but does not abort the run.
+ */
+export async function nightlyRecalibrateAll(): Promise<{
+  ran: number;
+  failed: number;
+  details: { leagueId: number; ok: boolean; error?: string; teams?: number; matches?: number; brier?: number | null }[];
+}> {
+  const today = new Date();
+  const eloFrom = isoDay(new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000));
+  const calFrom = isoDay(new Date(today.getTime() - 120 * 24 * 60 * 60 * 1000));
+  const to = isoDay(today);
+  const details: Awaited<ReturnType<typeof nightlyRecalibrateAll>>["details"] = [];
+  let ran = 0;
+  let failed = 0;
+  for (const leagueId of NIGHTLY_LEAGUE_IDS) {
+    if (!BACKTEST_LEAGUES.find((l) => l.id === leagueId)) continue;
+    try {
+      const elo = await recomputeLeagueElo({ leagueId, from: eloFrom, to });
+      let cal: LeagueCalibration | null = null;
+      try {
+        cal = await calibrateLeague({ leagueId, from: calFrom, to, maxMatches: 50 });
+      } catch (e) {
+        // calibration sometimes has no scored matches in the window — keep ELO
+        console.warn(`[nightly] calibrate league ${leagueId} skipped:`, e);
+      }
+      details.push({ leagueId, ok: true, teams: elo.teams, matches: elo.matches, brier: cal?.brier_1x2 ?? null });
+      ran++;
+    } catch (e) {
+      failed++;
+      details.push({ leagueId, ok: false, error: e instanceof Error ? e.message : "unknown" });
+      console.error(`[nightly] league ${leagueId} failed:`, e);
+    }
+  }
+  return { ran, failed, details };
+}
+
 /**
  * Incrementally update ELO ratings for a single finished match. Called from
  * autoSettle so ratings stay fresh without needing manual recompute.

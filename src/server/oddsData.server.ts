@@ -257,6 +257,23 @@ async function readLiveOddsFromCache(matchId: number): Promise<MatchOddsResult |
   }
 }
 
+/**
+ * Cache-only lookup. Returns odds if present in either the per-match cache
+ * or the daily snapshot, otherwise null. NEVER hits The Odds API. Cheap to
+ * call for every fixture of the day.
+ */
+export async function getMatchOddsCachedOnly(
+  match: MatchSummary,
+): Promise<MatchOddsResult | null> {
+  const cached = await readLiveOddsFromCache(match.id);
+  if (cached && cached.rows.length > 0) return cached;
+  const snapshot = await readDailySnapshot();
+  if (!snapshot) return null;
+  const ev = snapshot.find((e) => eventMatches(e, match));
+  if (!ev) return null;
+  return buildResultFromEvent(match.id, ev);
+}
+
 async function writeLiveOddsToCache(matchId: number, payload: MatchOddsResult): Promise<void> {
   const sb = cacheClient();
   if (!sb) return;

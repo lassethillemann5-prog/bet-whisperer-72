@@ -320,3 +320,37 @@ export function bankrollGrowthSeries(
   }
   return points;
 }
+
+/**
+ * Rolling CLV time-series. Walks bets that have a captured `clv_pct` in
+ * chronological order and emits, for each point, the running average CLV
+ * (over the last `window` bets) and beat-close rate.
+ */
+export function clvSeries(
+  bets: BetLogRow[],
+  window = 10,
+): { date: string; rollingClv: number; beatRate: number; clv: number }[] {
+  const withClv = bets
+    .filter((b) => b.clv_pct != null && Number.isFinite(Number(b.clv_pct)))
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.closing_odds_captured_at ?? a.updated_at).getTime() -
+        new Date(b.closing_odds_captured_at ?? b.updated_at).getTime(),
+    );
+  const out: { date: string; rollingClv: number; beatRate: number; clv: number }[] = [];
+  for (let i = 0; i < withClv.length; i++) {
+    const start = Math.max(0, i - window + 1);
+    const slice = withClv.slice(start, i + 1);
+    const avg = slice.reduce((s, b) => s + Number(b.clv_pct), 0) / slice.length;
+    const beat = slice.filter((b) => Number(b.clv_pct) > 0).length / slice.length;
+    const ts = withClv[i].closing_odds_captured_at ?? withClv[i].updated_at;
+    out.push({
+      date: new Date(ts).toLocaleDateString(),
+      rollingClv: +avg.toFixed(2),
+      beatRate: +(beat * 100).toFixed(0),
+      clv: +Number(withClv[i].clv_pct).toFixed(2),
+    });
+  }
+  return out;
+}

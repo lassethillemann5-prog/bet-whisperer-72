@@ -42,9 +42,13 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  LineChart,
+  Line,
+  ReferenceLine,
 } from "recharts";
 import {
   bankrollGrowthSeries,
+  clvSeries,
   computeStats,
   deleteBet,
   getBankroll,
@@ -135,6 +139,7 @@ function BankrollPage() {
     () => bankrollGrowthSeries(bets, Number(bankroll?.starting_bankroll ?? 0)),
     [bets, bankroll?.starting_bankroll],
   );
+  const clv = useMemo(() => clvSeries(bets, 10), [bets]);
 
   if (loading || !user) return null;
 
@@ -273,6 +278,57 @@ function BankrollPage() {
                       fill="url(#bankrollFill)"
                     />
                   </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {clv.length > 1 && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="text-base">Closing Line Value (rolling 10-bet)</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Positive CLV = you're consistently beating the closing odds. The single best
+                  long-run signal of edge — more reliable than ROI on small samples.
+                </p>
+              </CardHeader>
+              <CardContent className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={clv}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} />
+                    <YAxis
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={11}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 8,
+                      }}
+                      formatter={(value: number, name) => [`${value}%`, name]}
+                    />
+                    <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 2" />
+                    <Line
+                      type="monotone"
+                      dataKey="rollingClv"
+                      name="Rolling avg"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="clv"
+                      name="Per-bet"
+                      stroke="hsl(var(--muted-foreground))"
+                      strokeWidth={1}
+                      strokeDasharray="3 3"
+                      dot={false}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
