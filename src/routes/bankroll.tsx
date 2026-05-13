@@ -42,9 +42,13 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  LineChart,
+  Line,
+  ReferenceLine,
 } from "recharts";
 import {
   bankrollGrowthSeries,
+  clvSeries,
   computeStats,
   deleteBet,
   getBankroll,
@@ -135,6 +139,7 @@ function BankrollPage() {
     () => bankrollGrowthSeries(bets, Number(bankroll?.starting_bankroll ?? 0)),
     [bets, bankroll?.starting_bankroll],
   );
+  const clv = useMemo(() => clvSeries(bets, 10), [bets]);
 
   if (loading || !user) return null;
 
