@@ -677,6 +677,117 @@ export const getTodayPredictions = createServerFn({ method: "POST" })
   });
 
 // ---------------------------------------------------------------------------
+// Value bets: cross-reference cached predictions with cached odds to find
+// positive-EV picks. ZERO API calls — only reads cache. Safe to call often.
+// ---------------------------------------------------------------------------
+
+export interface ValueBetRow {
+  matchId: number;
+  utcDate: string;
+  home: string;
+  away: string;
+  competition: string | null;
+  market: string;
+  selection: string;
+  label: string;
+  modelProb: number; // 0..1
+  decimalOdds: number;
+  edgePct: number; // (prob*odds - 1)*100
+  evPerUnit: number; // prob*odds - 1, signed
+  kellyFraction: number; // 0..1, capped at 0.25
+}
+
+/** Kelly criterion for a single binary bet. b = decimalOdds - 1, p = prob. */
+function kelly(prob: number, decimalOdds: number): number {
+  const b = decimalOdds - 1;
+  if (b <= 0) return 0;
+  const q = 1 - prob;
+  const f = (b * prob - q) / b;
+  // Quarter-Kelly cap to keep variance sane.
+  return Math.max(0, Math.min(0.25, f * 0.5));
+}
+
+export const getValueBets = createServerFn({ method: "POST" })
+  .inputValidator((input: { minEdgePct?: number } | undefined) => input ?? {})
+  .handler(async ({ data }) => {
+    const minEdge = (data.minEdgePct ?? 5) / 100; // default: 5% edge
+    try {
+      const supabase = adminClient();
+      const all = await fetchUpcomingMatches(2);
+      const now = Date.now();
+      const horizon = now + 30 * 60 * 60 * 1000; // next 30h
+      const fixtures = all.filter((m) => {
+        const t = new Date(m.utcDate).getTime();
+        return t > now && t < horizon;
+      });
+      if (fixtures.length === 0) return { rows: [] as ValueBetRow[], scanned: 0 };
+
+      const ids = fixtures.map((f) => f.id);
+      const { data: cachedRows } = await supabase
+        .from("predictions_cache")
+        .select("match_id, payload")
+        .in("match_id", ids);
+      const predMap = new Map<number, MatchPredictions>();
+      for (const row of cachedRows ?? []) {
+        const p = (row.payload as { predictions: MatchPredictions }).predictions;
+        if (p?.homeForm && p?.awayForm) predMap.set(row.match_id as number, p);
+      }
+
+      const rows: ValueBetRow[] = [];
+      for (const fx of fixtures) {
+        const pred = predMap.get(fx.id);
+        if (!pred) continue;
+        const odds = await getMatchOddsCachedOnly(fx);
+        if (!odds || odds.rows.length === 0) continue;
+        // Walk every (market, selection) odds row and look up the matching
+        // model probability.
+        for (const oddsRow of odds.rows) {
+          const market = pred.markets.find((m) => m.market === oddsRow.market);
+          if (!market) continue;
+          // Map odds-side selection key to predictor probabilities key.
+          const sel = oddsRow.selection;
+          let prob = market.probabilities[sel];
+          if (prob == null) {
+            // Loose match — predictor uses "1"/"X"/"2" while odds may say "Home"/"Draw"/"Away".
+            const lookup: Record<string, string> = {
+              Home: "1", Draw: "X", Away: "2",
+            };
+            const k = lookup[sel];
+            if (k) prob = market.probabilities[k];
+          }
+          if (prob == null) continue;
+          const p = prob / 100;
+          const o = oddsRow.best;
+          if (!Number.isFinite(o) || o <= 1) continue;
+          const ev = p * o - 1;
+          if (ev < minEdge) continue;
+          rows.push({
+            matchId: fx.id,
+            utcDate: fx.utcDate,
+            home: fx.homeTeam.name,
+            away: fx.awayTeam.name,
+            competition: fx.competition?.name ?? null,
+            market: oddsRow.market,
+            selection: sel,
+            label: market.label,
+            modelProb: +(p * 100).toFixed(1),
+            decimalOdds: +o.toFixed(2),
+            edgePct: +(ev * 100).toFixed(1),
+            evPerUnit: +ev.toFixed(3),
+            kellyFraction: +kelly(p, o).toFixed(4),
+          });
+        }
+      }
+      // Sort by edge desc, then by Kelly desc.
+      rows.sort((a, b) => b.edgePct - a.edgePct || b.kellyFraction - a.kellyFraction);
+      return { rows: rows.slice(0, 30), scanned: fixtures.length };
+    } catch (e) {
+      console.error("getValueBets failed", e);
+      return { rows: [] as ValueBetRow[], scanned: 0, error: e instanceof Error ? e.message : "failed" };
+    }
+  });
+
+// ---------------------------------------------------------------------------
 // AI Coach: recommend bets for a chosen market based on model probabilities
 // ---------------------------------------------------------------------------
 
