@@ -8,10 +8,12 @@ import {
   getFixtures,
   getPickOfTheDay,
   getTodayPredictions,
+  getValueBets,
   type CoachMarket,
   type CoachRecommendation,
   type PickOfTheDayResponse,
   type TodayPickRow,
+  type ValueBetRow,
 } from "@/server/football.functions";
 import { askCoachChat, type CoachChatMessage } from "@/server/coachChat.functions";
 import type { MatchSummary } from "@/lib/football/types";
@@ -40,6 +42,7 @@ import {
   ListChecks,
   User as UserIcon,
   ArrowUpDown,
+  Target,
 } from "lucide-react";
 import { toast } from "sonner";
 import { LogBetDialog } from "@/components/app/LogBetDialog";
@@ -407,7 +410,7 @@ function IndexPage() {
       <Hero count={matches.length} days={DAYS_WINDOW} />
       <PickOfTheDayBanner pick={pickOfDay} busy={pickOfDayBusy} />
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks" | "coach")} className="mb-6">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "fixtures" | "picks" | "value" | "coach")} className="mb-6">
         <TabsList className="h-10 p-1">
           <TabsTrigger value="fixtures" className="gap-1.5">
             <Calendar className="h-3.5 w-3.5" />
@@ -421,6 +424,10 @@ function IndexPage() {
                 {todayRows.length}
               </span>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="value" className="gap-1.5">
+            <Target className="h-3.5 w-3.5" />
+            Value bets
           </TabsTrigger>
           <TabsTrigger value="coach" className="gap-1.5">
             <Bot className="h-3.5 w-3.5" />
@@ -436,6 +443,10 @@ function IndexPage() {
             computed={todayComputed}
             onRefresh={loadTodayPredictions}
           />
+        </TabsContent>
+
+        <TabsContent value="value" className="mt-6">
+          <ValueBetsPanel />
         </TabsContent>
 
         <TabsContent value="coach" className="mt-6">
