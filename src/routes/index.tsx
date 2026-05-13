@@ -1916,3 +1916,93 @@ function CoachPickCard({ rec, rank }: { rec: CoachRecommendation; rank: number }
     </div>
   );
 }
+
+function ValueBetsPanel() {
+  const [rows, setRows] = useState<ValueBetRow[]>([]);
+  const [busy, setBusy] = useState(true);
+  const [scanned, setScanned] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true);
+    getValueBets({ data: { minEdgePct: 5 } })
+      .then((res) => {
+        if (cancelled) return;
+        setRows(res.rows);
+        setScanned(res.scanned);
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setBusy(false));
+    return () => { cancelled = true; };
+  }, []);
+
+  if (busy) {
+    return <div className="h-32 animate-pulse rounded-md bg-secondary/40" />;
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-lg border border-border/60 bg-secondary/30 p-8 text-center">
+        <Target className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+        <h3 className="font-display text-lg font-bold">No value bets right now</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Scanned {scanned} upcoming fixtures. A value bet needs ≥5% edge over the bookmaker's
+          best price. Check back later — odds and predictions update through the day.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {rows.length} value picks across {scanned} fixtures. Sorted by edge. Kelly fraction is
+        quarter-Kelly capped at 25% — multiply by your bankroll for a stake suggestion.
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-border/60">
+        <table className="w-full text-sm">
+          <thead className="bg-secondary/50 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 text-left">Match</th>
+              <th className="px-3 py-2 text-left">Pick</th>
+              <th className="px-3 py-2 text-right">Model</th>
+              <th className="px-3 py-2 text-right">Odds</th>
+              <th className="px-3 py-2 text-right">Edge</th>
+              <th className="px-3 py-2 text-right">Kelly</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r.matchId}-${r.market}-${r.selection}-${i}`} className="border-t border-border/60">
+                <td className="px-3 py-2">
+                  <Link
+                    to="/match/$matchId"
+                    params={{ matchId: String(r.matchId) }}
+                    className="font-medium hover:underline"
+                  >
+                    {r.home} vs {r.away}
+                  </Link>
+                  <div className="text-[11px] text-muted-foreground">
+                    {r.competition} · {new Date(r.utcDate).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <span className="font-mono text-xs">{r.market}</span>
+                  <div className="font-medium">{r.selection}</div>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.modelProb}%</td>
+                <td className="px-3 py-2 text-right tabular-nums">@{r.decimalOdds}</td>
+                <td className="px-3 py-2 text-right font-bold tabular-nums text-emerald-400">
+                  +{r.edgePct}%
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {(r.kellyFraction * 100).toFixed(1)}%
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
