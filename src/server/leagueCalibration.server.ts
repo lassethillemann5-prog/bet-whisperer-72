@@ -210,6 +210,21 @@ export async function updateEloAfterMatch(opts: {
   }
   const home = map.get(opts.homeId) ?? { rating: ELO_DEFAULT, played: 0, name: opts.homeName ?? null };
   const away = map.get(opts.awayId) ?? { rating: ELO_DEFAULT, played: 0, name: opts.awayName ?? null };
+  // Idempotency guard: if either team's last_match_at is already >= this
+  // match's date, we've likely processed this fixture before (or a later
+  // one). Skip to prevent double-counting when autoSettle runs across users.
+  const sbCheck = sb;
+  const { data: lastRows } = await sbCheck
+    .from("team_elo")
+    .select("team_id, last_match_at")
+    .eq("league_id", opts.leagueId)
+    .in("team_id", [opts.homeId, opts.awayId]);
+  const matchTs = new Date(opts.matchDate).getTime();
+  for (const r of (lastRows as { team_id: number; last_match_at: string | null }[]) ?? []) {
+    if (r.last_match_at && new Date(r.last_match_at).getTime() >= matchTs) {
+      return; // already processed this (or a newer) fixture
+    }
+  }
   const next = eloUpdate(home.rating, away.rating, opts.goalsHome, opts.goalsAway);
   const now = new Date().toISOString();
   await sb.from("team_elo").upsert(
