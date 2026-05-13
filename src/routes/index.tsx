@@ -157,7 +157,7 @@ function IndexPage() {
   const [sortBy, setSortBy] = useState<"popularity" | "time">("popularity");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"fixtures" | "picks" | "coach">("fixtures");
+  const [tab, setTab] = useState<"fixtures" | "picks" | "value" | "coach">("fixtures");
   const [todayRows, setTodayRows] = useState<TodayPickRow[]>([]);
   const [todayBusy, setTodayBusy] = useState(false);
   const [todayMissing, setTodayMissing] = useState(0);
