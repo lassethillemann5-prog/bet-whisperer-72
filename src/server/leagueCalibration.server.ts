@@ -180,3 +180,98 @@ export async function recomputeLeagueElo(opts: {
   }
   return { teams: rows.length, matches: fixtures.length };
 }
+
+/**
+ * Incrementally update ELO ratings for a single finished match. Called from
+ * autoSettle so ratings stay fresh without needing manual recompute.
+ * Idempotent enough: uses upsert; calling twice with same result will drift
+ * slightly, so callers should only invoke once per match (autoSettle only
+ * grades a bet once).
+ */
+export async function updateEloAfterMatch(opts: {
+  leagueId: number;
+  homeId: number;
+  awayId: number;
+  homeName?: string | null;
+  awayName?: string | null;
+  goalsHome: number;
+  goalsAway: number;
+  matchDate: string;
+}): Promise<void> {
+  const sb = admin();
+  const { data } = await sb
+    .from("team_elo")
+    .select("team_id, rating, matches_played, team_name")
+    .eq("league_id", opts.leagueId)
+    .in("team_id", [opts.homeId, opts.awayId]);
+  const map = new Map<number, { rating: number; played: number; name: string | null }>();
+  for (const r of (data as { team_id: number; rating: number; matches_played: number; team_name: string | null }[]) ?? []) {
+    map.set(r.team_id, { rating: Number(r.rating), played: r.matches_played, name: r.team_name });
+  }
+  const home = map.get(opts.homeId) ?? { rating: ELO_DEFAULT, played: 0, name: opts.homeName ?? null };
+  const away = map.get(opts.awayId) ?? { rating: ELO_DEFAULT, played: 0, name: opts.awayName ?? null };
+  const next = eloUpdate(home.rating, away.rating, opts.goalsHome, opts.goalsAway);
+  const now = new Date().toISOString();
+  await sb.from("team_elo").upsert(
+    [
+      {
+        team_id: opts.homeId,
+        league_id: opts.leagueId,
+        team_name: opts.homeName ?? home.name,
+        rating: +next.home.toFixed(2),
+        matches_played: home.played + 1,
+        last_match_at: opts.matchDate,
+        updated_at: now,
+      },
+      {
+        team_id: opts.awayId,
+        league_id: opts.leagueId,
+        team_name: opts.awayName ?? away.name,
+        rating: +next.away.toFixed(2),
+        matches_played: away.played + 1,
+        last_match_at: opts.matchDate,
+        updated_at: now,
+      },
+    ],
+    { onConflict: "team_id,league_id" },
+  );
+}
+
+/** Returns true if the league has any ELO rows stored. */
+export async function leagueHasElo(leagueId: number): Promise<boolean> {
+  const sb = admin();
+  const { count } = await sb
+    .from("team_elo")
+    .select("team_id", { count: "exact", head: true })
+    .eq("league_id", leagueId);
+  return (count ?? 0) > 0;
+}
+
+// In-process dedupe so concurrent predictions don't all kick off backfills.
+const inFlightBackfills = new Set<number>();
+
+/**
+ * Fire-and-forget: if the league has no ELO data yet AND it's a known
+ * BACKTEST_LEAGUES entry, recompute ELO from the last 365 days. Safe to call
+ * on every prediction — guarded by an in-process Set + a DB existence check.
+ */
+export function ensureLeagueEloBackfilled(leagueId: number): void {
+  if (inFlightBackfills.has(leagueId)) return;
+  if (!BACKTEST_LEAGUES.find((l) => l.id === leagueId)) return;
+  inFlightBackfills.add(leagueId);
+  (async () => {
+    try {
+      if (await leagueHasElo(leagueId)) return;
+      const to = new Date();
+      const from = new Date(to.getTime() - 365 * 24 * 60 * 60 * 1000);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      console.log(`[elo] auto-backfilling league ${leagueId} (${fmt(from)}..${fmt(to)})`);
+      const r = await recomputeLeagueElo({ leagueId, from: fmt(from), to: fmt(to) });
+      console.log(`[elo] backfill done: ${r.teams} teams, ${r.matches} matches`);
+    } catch (e) {
+      console.warn(`[elo] backfill failed for league ${leagueId}`, e);
+    } finally {
+      inFlightBackfills.delete(leagueId);
+    }
+  })();
+}
