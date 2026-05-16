@@ -1,5 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
-import { runBacktest, BACKTEST_LEAGUES, fetchFinishedFixturesInRange } from "./backtest.server";
+import {
+  runBacktest,
+  BACKTEST_LEAGUES,
+  fetchFinishedFixturesInRange,
+  collectBacktestPairs,
+  scorePairs,
+  defaultSweepGrid,
+  type SweepResult,
+} from "./backtest.server";
 import { eloUpdate, ELO_DEFAULT } from "@/lib/football/elo";
 
 function admin() {
@@ -131,6 +139,99 @@ export async function calibrateLeague(opts: {
   };
   await sb.from("league_calibration").upsert(row, { onConflict: "league_id" });
   return row as LeagueCalibration;
+}
+
+export type SweepObjective = "brier" | "logloss" | "hitrate" | "roi";
+
+function sortBy(objective: SweepObjective) {
+  return (a: SweepResult, b: SweepResult) => {
+    if (objective === "brier") return a.brier_1x2 - b.brier_1x2;
+    if (objective === "logloss") return a.logloss_1x2 - b.logloss_1x2;
+    if (objective === "hitrate") return b.hitrate_1x2 - a.hitrate_1x2;
+    return b.roi_flat - a.roi_flat;
+  };
+}
+
+/**
+ * Deep grid-sweep: fetch form once, then analytically score ~96 cfg
+ * combinations. Returns the full ranked list + the chosen winner per the
+ * given objective. Optionally persists the winner to league_calibration.
+ */
+export async function sweepLeagueCalibration(opts: {
+  leagueId: number;
+  from: string;
+  to: string;
+  maxMatches?: number;
+  objective?: SweepObjective;
+  persist?: boolean;
+}): Promise<{
+  leagueId: number;
+  leagueName: string;
+  objective: SweepObjective;
+  pairs: number;
+  results: SweepResult[];
+  winner: SweepResult;
+  baseline: SweepResult;
+  persisted: boolean;
+}> {
+  const meta = BACKTEST_LEAGUES.find((l) => l.id === opts.leagueId);
+  if (!meta) throw new Error(`Unknown league ${opts.leagueId}`);
+  const objective = opts.objective ?? "brier";
+
+  const pairs = await collectBacktestPairs({
+    leagueId: opts.leagueId,
+    from: opts.from,
+    to: opts.to,
+    maxMatches: opts.maxMatches ?? 80,
+  });
+  if (pairs.length === 0) throw new Error("No scorable fixtures in window");
+
+  const grid = defaultSweepGrid();
+  const results = grid.map((cfg) => scorePairs(pairs, cfg));
+  results.sort(sortBy(objective));
+  const winner = results[0];
+  const baseline = scorePairs(pairs, {
+    temperature: 1.289, homeAdvantage: 1.15, dcRho: 0.08, xgWeight: 0.7,
+  });
+
+  let persisted = false;
+  if (opts.persist) {
+    const sb = admin();
+    await sb.from("league_calibration").upsert(
+      {
+        league_id: opts.leagueId,
+        league_name: meta.name,
+        temperature: winner.cfg.temperature,
+        home_advantage: winner.cfg.homeAdvantage,
+        dc_rho: winner.cfg.dcRho,
+        xg_weight: winner.cfg.xgWeight,
+        elo_weight: 0.3,
+        brier_1x2: winner.brier_1x2,
+        logloss_1x2: winner.logloss_1x2,
+        hitrate_1x2: winner.hitrate_1x2,
+        matches_scored: pairs.length,
+        date_from: opts.from,
+        date_to: opts.to,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "league_id" },
+    );
+    persisted = true;
+  }
+
+  // Keep payload small for the UI: top 12 + bottom 3 for context.
+  const top = results.slice(0, 12);
+  const bottom = results.slice(-3);
+  return {
+    leagueId: opts.leagueId,
+    leagueName: meta.name,
+    objective,
+    pairs: pairs.length,
+    results: [...top, ...bottom],
+    winner,
+    baseline,
+    persisted,
+  };
 }
 
 /**

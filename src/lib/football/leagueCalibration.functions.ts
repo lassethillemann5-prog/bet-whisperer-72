@@ -5,6 +5,7 @@ import {
   calibrateLeague,
   recomputeLeagueElo,
   getLeagueCalibration,
+  sweepLeagueCalibration,
 } from "@/server/leagueCalibration.server";
 import { BACKTEST_LEAGUES } from "@/server/backtest.server";
 
@@ -49,4 +50,22 @@ export const runLeagueEloRecompute = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     return recomputeLeagueElo(data);
+  });
+
+export const runLeagueSweep = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        leagueId: z.number().int().positive(),
+        from: z.string().min(8),
+        to: z.string().min(8),
+        maxMatches: z.number().int().min(20).max(200).optional(),
+        objective: z.enum(["brier", "logloss", "hitrate", "roi"]).optional(),
+        persist: z.boolean().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    return sweepLeagueCalibration(data);
   });

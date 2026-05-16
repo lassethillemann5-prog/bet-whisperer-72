@@ -131,6 +131,120 @@ export interface BacktestPrediction {
   scored: boolean;
 }
 
+/** Raw form pair + actual outcome for one fixture. Used by analytical
+ *  grid-sweeps so we can evaluate many cfgs without re-fetching the API. */
+export interface BacktestPair {
+  matchId: number;
+  date: string;
+  home: string;
+  away: string;
+  homeForm: TeamForm | null;
+  awayForm: TeamForm | null;
+  actual: { h: number; a: number; result: "1" | "X" | "2"; total: number; btts: boolean };
+}
+
+/** Fetch fixtures + as-of form for both sides. Returns one entry per fixture
+ *  with at least 3 played matches on each side (i.e. usable for scoring). */
+export async function collectBacktestPairs(opts: {
+  leagueId: number;
+  from: string;
+  to: string;
+  maxMatches?: number;
+}): Promise<BacktestPair[]> {
+  const max = Math.max(1, Math.min(200, opts.maxMatches ?? 60));
+  const fixtures = (await fetchFinishedFixturesInRange(opts.leagueId, opts.from, opts.to))
+    .filter((f) => f.score.fulltime?.home != null && f.score.fulltime?.away != null)
+    .slice(0, max);
+
+  const out: BacktestPair[] = [];
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  async function worker() {
+    while (cursor < fixtures.length) {
+      const fx = fixtures[cursor++];
+      const date = fx.fixture.date.slice(0, 10);
+      const ft = fx.score.fulltime!;
+      const h = ft.home!, a = ft.away!;
+      try {
+        const [hf, af] = await Promise.all([
+          fetchAsOfForm(fx.teams.home.id, date),
+          fetchAsOfForm(fx.teams.away.id, date),
+        ]);
+        if (!hf || !af || hf.played < 3 || af.played < 3) continue;
+        out.push({
+          matchId: fx.fixture.id,
+          date,
+          home: fx.teams.home.name,
+          away: fx.teams.away.name,
+          homeForm: hf,
+          awayForm: af,
+          actual: { h, a, result: h > a ? "1" : h < a ? "2" : "X", total: h + a, btts: h >= 1 && a >= 1 },
+        });
+      } catch (e) {
+        console.warn("[sweep] form fetch failed", fx.fixture.id, e);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  return out;
+}
+
+export interface SweepResult {
+  cfg: BacktestModelConfig;
+  brier_1x2: number;
+  logloss_1x2: number;
+  hitrate_1x2: number;
+  roi_flat: number;
+  bets: number;
+}
+
+/** Evaluate one cfg analytically against a pre-fetched set of pairs. */
+export function scorePairs(pairs: BacktestPair[], cfg: BacktestModelConfig): SweepResult {
+  let brier = 0, logloss = 0, hits = 0, roi = 0;
+  for (const p of pairs) {
+    const pred = predictForBacktest(p.homeForm, p.awayForm, cfg);
+    const actH = p.actual.result === "1" ? 1 : 0;
+    const actD = p.actual.result === "X" ? 1 : 0;
+    const actA = p.actual.result === "2" ? 1 : 0;
+    brier += (pred.pHome - actH) ** 2 + (pred.pDraw - actD) ** 2 + (pred.pAway - actA) ** 2;
+    const pickProb = actH ? pred.pHome : actD ? pred.pDraw : pred.pAway;
+    logloss += -Math.log(Math.max(1e-9, pickProb));
+    const top = Math.max(pred.pHome, pred.pDraw, pred.pAway);
+    const topPick: "1" | "X" | "2" = top === pred.pHome ? "1" : top === pred.pAway ? "2" : "X";
+    if (topPick === p.actual.result) {
+      hits++;
+      roi += 1 / Math.max(1e-9, top) - 1;
+    } else {
+      roi -= 1;
+    }
+  }
+  const n = pairs.length || 1;
+  return {
+    cfg,
+    brier_1x2: +(brier / n).toFixed(4),
+    logloss_1x2: +(logloss / n).toFixed(4),
+    hitrate_1x2: +(hits / n).toFixed(4),
+    roi_flat: +(roi / n).toFixed(4),
+    bets: pairs.length,
+  };
+}
+
+/** Default ~96-point grid. Wide enough to find interesting optima, small
+ *  enough that evaluation is sub-second per config on 60 pairs. */
+export function defaultSweepGrid(): BacktestModelConfig[] {
+  const grid: BacktestModelConfig[] = [];
+  for (const temperature of [1.00, 1.15, 1.30, 1.45, 1.60]) {
+    for (const homeAdvantage of [1.05, 1.15, 1.25, 1.35]) {
+      for (const dcRho of [0.04, 0.08, 0.12]) {
+        for (const xgWeight of [0.4, 0.7, 0.9]) {
+          grid.push({ temperature, homeAdvantage, dcRho, xgWeight });
+        }
+      }
+    }
+  }
+  return grid;
+}
+
 export interface BacktestSummary {
   matchesTotal: number;
   matchesScored: number;

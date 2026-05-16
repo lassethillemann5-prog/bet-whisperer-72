@@ -23,6 +23,7 @@ import { FlaskConical, Loader2, Trash2, TrendingUp, Target, Activity, Calendar }
 import {
   runLeagueCalibration,
   runLeagueEloRecompute,
+  runLeagueSweep,
 } from "@/lib/football/leagueCalibration.functions";
 
 export const Route = createFileRoute("/backtest")({
@@ -184,6 +185,37 @@ function BacktestPage() {
     }
   };
 
+  type SweepObjective = "brier" | "logloss" | "hitrate" | "roi";
+  type SweepResp = Awaited<ReturnType<typeof runLeagueSweep>>;
+  const [sweepBusy, setSweepBusy] = useState(false);
+  const [sweepObjective, setSweepObjective] = useState<SweepObjective>("roi");
+  const [sweepPersist, setSweepPersist] = useState(false);
+  const [sweep, setSweep] = useState<SweepResp | null>(null);
+
+  const onSweep = async () => {
+    if (sweepBusy) return;
+    setSweepBusy(true);
+    const tid = toast.loading("Henter form-data + scorer ~96 konfigurationer…");
+    try {
+      const r = await runLeagueSweep({
+        data: {
+          leagueId, from, to, maxMatches,
+          objective: sweepObjective,
+          persist: sweepPersist,
+        },
+      });
+      setSweep(r);
+      toast.success(
+        `Vinder · ROI ${(r.winner.roi_flat * 100).toFixed(1)}% · hit ${(r.winner.hitrate_1x2 * 100).toFixed(1)}% · ${r.pairs} kampe${r.persisted ? " · gemt" : ""}`,
+        { id: tid },
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sweep failed", { id: tid });
+    } finally {
+      setSweepBusy(false);
+    }
+  };
+
   return (
     <AppShell>
       <header className="mb-6">
@@ -322,6 +354,48 @@ function BacktestPage() {
           </section>
 
           <section className="rounded-xl border border-border/60 bg-card p-4">
+            <h2 className="mb-1 text-sm font-semibold">Deep sweep</h2>
+            <p className="mb-3 text-[11px] text-muted-foreground">
+              Henter form-data én gang (~samme API-pris som ét backtest) og
+              evaluerer derefter analytisk ~96 kombinationer af T, HA, ρ og
+              xG-vægt. Find den konfiguration der maksimerer dit valgte mål.
+            </p>
+            <div className="space-y-2">
+              <div>
+                <Label className="text-xs">Optimer for</Label>
+                <Select
+                  value={sweepObjective}
+                  onValueChange={(v) => setSweepObjective(v as SweepObjective)}
+                >
+                  <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="roi">ROI (fair odds)</SelectItem>
+                    <SelectItem value="hitrate">Hitrate 1X2</SelectItem>
+                    <SelectItem value="brier">Brier (kalibrering)</SelectItem>
+                    <SelectItem value="logloss">Log-loss</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={sweepPersist}
+                  onChange={(e) => setSweepPersist(e.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                Gem vinder som ligaens aktive kalibrering
+              </label>
+              <Button onClick={onSweep} disabled={sweepBusy} className="w-full">
+                {sweepBusy ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sweeping…</>
+                ) : (
+                  <>Run deep sweep</>
+                )}
+              </Button>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-border/60 bg-card p-4">
             <h2 className="mb-3 text-sm font-semibold">History</h2>
             {runs.length === 0 ? (
               <p className="text-sm text-muted-foreground">No runs yet.</p>
@@ -347,16 +421,101 @@ function BacktestPage() {
             <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
             </div>
-          ) : detail ? (
-            <RunDetail run={detail} />
           ) : (
-            <div className="rounded-xl border border-dashed border-border/60 p-10 text-center text-sm text-muted-foreground">
-              Run a backtest or select one from history to see details.
+            <div className="space-y-6">
+              {sweep && <SweepPanel sweep={sweep} />}
+              {detail ? (
+                <RunDetail run={detail} />
+              ) : !sweep ? (
+                <div className="rounded-xl border border-dashed border-border/60 p-10 text-center text-sm text-muted-foreground">
+                  Run a backtest or select one from history to see details.
+                </div>
+              ) : null}
             </div>
           )}
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function SweepPanel({ sweep }: { sweep: Awaited<ReturnType<typeof runLeagueSweep>> }) {
+  const delta = (w: number, b: number) => {
+    const d = w - b;
+    const s = d >= 0 ? "+" : "";
+    return `${s}${(d * 100).toFixed(2)}%`;
+  };
+  return (
+    <section className="rounded-xl border border-border/60 bg-card">
+      <header className="flex items-center justify-between border-b border-border/40 p-4">
+        <div>
+          <h3 className="text-sm font-semibold">
+            Deep sweep · {sweep.leagueName}
+          </h3>
+          <p className="text-[11px] text-muted-foreground">
+            {sweep.pairs} kampe · optimeret for <strong>{sweep.objective}</strong>
+            {sweep.persisted && <span className="ml-2 rounded bg-emerald-500/10 px-1.5 py-0.5 text-emerald-500">gemt</span>}
+          </p>
+        </div>
+        <div className="text-right text-[11px]">
+          <div className="text-muted-foreground">Δ vs baseline</div>
+          <div className="font-semibold text-emerald-500">
+            ROI {delta(sweep.winner.roi_flat, sweep.baseline.roi_flat)} · hit {delta(sweep.winner.hitrate_1x2, sweep.baseline.hitrate_1x2)}
+          </div>
+        </div>
+      </header>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-secondary/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 text-left">Rank</th>
+              <th className="px-3 py-2 text-right">T</th>
+              <th className="px-3 py-2 text-right">HA</th>
+              <th className="px-3 py-2 text-right">ρ</th>
+              <th className="px-3 py-2 text-right">xG w</th>
+              <th className="px-3 py-2 text-right">Brier</th>
+              <th className="px-3 py-2 text-right">Log-loss</th>
+              <th className="px-3 py-2 text-right">Hit %</th>
+              <th className="px-3 py-2 text-right">ROI %</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-border/40 bg-muted/30">
+              <td className="px-3 py-2 font-semibold">baseline</td>
+              <td className="px-3 py-2 text-right tabular-nums">1.29</td>
+              <td className="px-3 py-2 text-right tabular-nums">1.15</td>
+              <td className="px-3 py-2 text-right tabular-nums">0.08</td>
+              <td className="px-3 py-2 text-right tabular-nums">0.70</td>
+              <td className="px-3 py-2 text-right tabular-nums">{sweep.baseline.brier_1x2.toFixed(3)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{sweep.baseline.logloss_1x2.toFixed(3)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{(sweep.baseline.hitrate_1x2 * 100).toFixed(1)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{(sweep.baseline.roi_flat * 100).toFixed(1)}</td>
+            </tr>
+            {sweep.results.map((r, i) => {
+              const isWinner = i === 0;
+              return (
+                <tr
+                  key={`${r.cfg.temperature}-${r.cfg.homeAdvantage}-${r.cfg.dcRho}-${r.cfg.xgWeight}`}
+                  className={`border-t border-border/40 ${isWinner ? "bg-primary/5 font-semibold" : ""}`}
+                >
+                  <td className="px-3 py-2">{isWinner ? "★ 1" : i < 12 ? i + 1 : "…"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.cfg.temperature.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.cfg.homeAdvantage.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.cfg.dcRho.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.cfg.xgWeight.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.brier_1x2.toFixed(3)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.logloss_1x2.toFixed(3)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{(r.hitrate_1x2 * 100).toFixed(1)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${r.roi_flat > 0 ? "text-emerald-500" : "text-destructive"}`}>
+                    {(r.roi_flat * 100).toFixed(1)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
